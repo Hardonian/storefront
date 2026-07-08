@@ -226,7 +226,8 @@ async def robots_txt():
 async def sitemap_xml():
     products = store.list_products(settings.db_path)
     base = "https://aiautomatedsystems.ca"
-    urls = [f"  <url><loc>{base}/</loc><changefreq>daily</changefreq></url>"]
+    urls = [f"  <url><loc>{base}/</loc><changefreq>daily</changefreq></url>",
+            f"  <url><loc>{base}/blog</loc><changefreq>daily</changefreq></url>"]
     for p in products:
         if p.get("status") == "ready":
             urls.append(

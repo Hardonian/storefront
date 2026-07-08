@@ -73,14 +73,58 @@
     footer { text-align: center; margin-top: 3rem; color: var(--text-muted); font-size: 0.85rem; }
     footer a { color: var(--accent); text-decoration: none; }
     .empty { text-align: center; padding: 3rem; color: var(--text-muted); }
+    .newsletter {
+      max-width: 640px; margin: 0 auto 2.5rem; padding: 1.5rem;
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      text-align: center;
+    }
+    .newsletter h2 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+    .newsletter p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem; }
+    .newsletter form { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
+    .newsletter input[type=email] {
+      flex: 1; min-width: 220px; padding: 0.7rem 1rem; border-radius: 8px;
+      border: 1px solid var(--border); background: #0d0d0f; color: var(--text); font-size: 0.9rem;
+    }
+    .newsletter .btn { flex: 0 0 auto; }
+    .newsletter .msg { margin-top: 0.75rem; font-size: 0.85rem; min-height: 1.2em; }
+    .newsletter .msg.ok { color: var(--price); }
+    .newsletter .msg.err { color: #f87171; }
+    .trust-bar {
+      display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center;
+      margin: 0 auto 2.5rem; max-width: 900px; color: var(--text-muted); font-size: 0.85rem;
+    }
+    .trust-bar .pill {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      padding: 0.4rem 0.8rem; border: 1px solid var(--border);
+      border-radius: 999px; background: var(--card);
+    }
+    .trust-bar .pill b { color: var(--text); font-weight: 600; }
   </style>
+  <script src="/landing-assets/analytics.js" defer></script>
 </head>
 <body>
   <div class="container">
     <header>
       <h1>AI Products</h1>
-      <p>Automation, audits, and tooling for builders & agencies</p>
+      <p>Automation, audits, and tooling for builders &amp; agencies</p>
     </header>
+
+    <div class="trust-bar">
+      <span class="pill">🔒 <b>Secure checkout</b> via Stripe &amp; Gumroad</span>
+      <span class="pill">✅ <b>30-day</b> money-back guarantee</span>
+      <span class="pill">⚡ <b>Instant</b> digital delivery</span>
+      <span class="pill">🛠️ <b>Done-for-you</b> options available</span>
+    </div>
+
+    <div class="newsletter">
+      <h2>Get the AI Lab Monetization Playbook</h2>
+      <p>Free 1-page guide + early access to new tooling. No spam.</p>
+      <form id="nl-form">
+        <input type="email" id="nl-email" placeholder="you@company.com" required>
+        <button type="submit" class="btn btn-primary">Subscribe</button>
+      </form>
+      <div class="msg" id="nl-msg"></div>
+    </div>
 
     {% if products %}
     <div class="grid">
@@ -106,9 +150,9 @@
           <a href="/p/{{ p.slug }}" class="btn btn-secondary">View Details</a>
           {% if p.status == 'ready' %}
             {% if p.gumroad_url %}
-            <a href="{{ p.gumroad_url }}" class="btn btn-primary" target="_blank" rel="noopener">Buy on Gumroad</a>
+            <a href="{{ p.gumroad_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">Buy on Gumroad</a>
             {% elif p.checkout_url %}
-            <a href="{{ p.checkout_url }}" class="btn btn-primary" target="_blank" rel="noopener">Buy Now</a>
+            <a href="{{ p.checkout_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">Buy Now</a>
             {% endif %}
           {% else %}
             <a href="/p/{{ p.slug }}" class="btn btn-primary">Contact / Details</a>
@@ -127,5 +171,34 @@
       <p>AI Automated Systems &middot; <a href="/legal/terms-of-service">Terms</a> &middot; <a href="/legal/privacy-policy">Privacy</a> &middot; <a href="/legal/refund-policy">Refunds</a></p>
     </footer>
   </div>
+
+  <script>
+    (function () {
+      var form = document.getElementById('nl-form');
+      var msg = document.getElementById('nl-msg');
+      if (!form) return;
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var email = document.getElementById('nl-email').value.trim();
+        msg.className = 'msg';
+        msg.textContent = 'Submitting…';
+        fetch('/api/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email, tag: 'newsletter' })
+        })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function () {
+          msg.className = 'msg ok';
+          msg.textContent = '✅ Subscribed — check your inbox.';
+          form.reset();
+        })
+        .catch(function () {
+          msg.className = 'msg err';
+          msg.textContent = 'Something went wrong. Try again.';
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

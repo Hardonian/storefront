@@ -12,15 +12,64 @@ from pathlib import Path
 from collections import defaultdict, deque
 from typing import Optional
 
-from fastapi import FastAPI, Request, HTTPException, Depends, Header
+from fastapi import FastAPI, Request, HTTPException, Depends, Header, Body
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, EmailStr, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Any, Dict, Optional
 
 from app import store
+
+# ── Analytics (local-first conversion tracking) ───────────────────────────────
+# The storefront ships an analytics.js client that previously POSTed to a remote
+# domain (aiautomatedsystems.ca/api/track) which is now down — meaning checkout
+# clicks and page views were silently dropped. We now capture them LOCALLY so the
+# operator gets real conversion signal instead of theatre.
+import sqlite3 as _sa_sqlite
+
+_ANALYTICS_DDL = """
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_slug TEXT,
+    event_type TEXT,
+    source TEXT,
+    payload_json TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+def _init_analytics(db_path: str) -> None:
+    conn = _sa_sqlite.connect(str(db_path))
+    try:
+        conn.execute(_ANALYTICS_DDL)
+        conn.commit()
+    finally:
+        conn.close()
+
+def _record_event(event: str, page: str | None, product_slug: str | None,
+                  checkout_url: str | None, session_id: str | None,
+                  referrer: str | None) -> None:
+    import json as _json
+    payload = _json.dumps({
+        "page": page,
+        "checkout_url": checkout_url,
+        "session_id": session_id,
+        "referrer": referrer,
+    }, separators=(",", ":"))
+    conn = _sa_sqlite.connect(str(settings.db_path))
+    try:
+        conn.execute(
+            "INSERT INTO events (product_slug, event_type, source, payload_json) "
+            "VALUES (?,?,?,?)",
+            (product_slug, event, "storefront", payload),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
 
 # ── Settings ───────────────────────────────────────────────────────────────────
 
@@ -132,6 +181,7 @@ def _validate_email(email: str) -> str:
 @app.on_event("startup")
 def _startup():
     store.init_db(settings.db_path)
+    _init_analytics(settings.db_path)
     Path(settings.landing_dir).mkdir(parents=True, exist_ok=True)
     Path(settings.legal_dir).mkdir(parents=True, exist_ok=True)
 
@@ -167,16 +217,25 @@ async def index():
 
 @app.get("/p/{slug}", response_class=HTMLResponse)
 async def product_landing(slug: str):
-    """Serve a static landing page by product slug."""
+    """Serve a static landing page by product slug, with analytics injected."""
     # Sanitise slug to prevent path traversal
-    slug_safe = re.sub(r"[^a-zA-Z0-9_\-]", "", slug)
+    slug_safe = re.sub(r"[^a-zA-Z0-9_\\-]", "", slug)
     if slug_safe != slug:
         raise HTTPException(status_code=400, detail="Invalid slug")
 
     html_path = LANDING_DIR / f"{slug_safe}.html"
     if not html_path.exists():
         raise HTTPException(status_code=404, detail=f"Landing page '{slug}' not found")
-    return FileResponse(str(html_path), media_type="text/html")
+
+    html = html_path.read_text(encoding="utf-8")
+    # Inject local-first analytics before </body> if not already present.
+    inject = '<script src="/landing-assets/analytics.js" defer></script>'
+    if "/landing-assets/analytics.js" not in html:
+        if "</body>" in html:
+            html = html.replace("</body>", f"{inject}\n</body>", 1)
+        else:
+            html = f"{html}\n{inject}\n"
+    return HTMLResponse(content=html)
 
 
 @app.get("/api/products")
@@ -228,6 +287,59 @@ async def api_leads(x_api_key: Optional[str] = Header(default=None)):
         raise HTTPException(status_code=401, detail="Unauthorized")
     leads = store.list_leads(settings.db_path)
     return {"leads": leads, "count": len(leads)}
+
+
+# ── Analytics ingestion (local-first conversion tracking) ─────────────────────
+
+@app.post("/api/track")
+async def api_track(payload: Dict[str, Any] = Body(default={})):
+    """Capture a client-side event (page_view / checkout_click) locally.
+
+    Resilient: never raises to the client so the analytics snippet can fire-and-forget.
+    """
+    _record_event(
+        event=str(payload.get("event", "unknown"))[:64],
+        page=str(payload.get("page", ""))[:256] or None,
+        product_slug=str(payload.get("product_slug", ""))[:128] or None,
+        checkout_url=str(payload.get("checkout_url", ""))[:512] or None,
+        session_id=str(payload.get("session_id", ""))[:64] or None,
+        referrer=str(payload.get("referrer", ""))[:512] or None,
+    )
+    return {"ok": True}
+
+
+@app.get("/api/analytics")
+async def api_analytics(x_api_key: Optional[str] = Header(default=None)):
+    if not settings.api_key:
+        raise HTTPException(status_code=503, detail="API key not configured on server")
+    if x_api_key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    conn = _sa_sqlite.connect(str(settings.db_path))
+    try:
+        totals = conn.execute(
+            "SELECT event_type, count(*) c FROM events GROUP BY event_type ORDER BY c DESC"
+        ).fetchall()
+        checkout_clicks = conn.execute(
+            "SELECT product_slug, count(*) c FROM events "
+            "WHERE event_type='checkout_click' GROUP BY product_slug ORDER BY c DESC"
+        ).fetchall()
+        page_views = conn.execute(
+            "SELECT count(*) FROM events WHERE event_type='page_view'"
+        ).fetchone()[0]
+        recent = conn.execute(
+            "SELECT event_type, product_slug, created_at FROM events ORDER BY id DESC LIMIT 25"
+        ).fetchall()
+    finally:
+        conn.close()
+    return {
+        "page_views": page_views,
+        "by_event": [{"event_type": r[0], "c": r[1]} for r in totals],
+        "top_checkout_clicks": [{"product_slug": r[0], "c": r[1]} for r in checkout_clicks],
+        "recent": [
+            {"event_type": r[0], "product_slug": r[1], "created_at": r[2]}
+            for r in recent
+        ],
+    }
 
 
 # ── Legal docs ────────────────────────────────────────────────────────────────

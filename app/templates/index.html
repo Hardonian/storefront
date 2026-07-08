@@ -103,6 +103,16 @@
     .trust-bar .pill b { color: var(--text); font-weight: 600; }
   </style>
   <script src="/landing-assets/analytics.js" defer></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    "itemListElement": [
+      {% for p in products %}{"@type":"ListItem","position":loop.index,"item":{"@type":"Product","name":"{{ p.name }}","url":"https://aiautomatedsystems.ca/p/{{ p.slug }}"}}{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  }
+  </script>
 </head>
 <body>
 <div class="container">

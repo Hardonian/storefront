@@ -208,6 +208,98 @@ async def health():
     return {"status": "ok", "service": "storefront", "version": app.version}
 
 
+# ── SEO / syndication surface (no personal identity; crawlable + feedable) ──────
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+async def robots_txt():
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /api/\n"
+        "Disallow: /legal/\n"
+        f"Sitemap: https://aiautomatedsystems.ca/sitemap.xml\n"
+    )
+    return PlainTextResponse(body)
+
+
+@app.get("/sitemap.xml", response_class=PlainTextResponse)
+async def sitemap_xml():
+    products = store.list_products(settings.db_path)
+    base = "https://aiautomatedsystems.ca"
+    urls = [f"  <url><loc>{base}/</loc><changefreq>daily</changefreq></url>"]
+    for p in products:
+        if p.get("status") == "ready":
+            urls.append(
+                f"  <url><loc>{base}/p/{p['slug']}</loc>"
+                f"<changefreq>weekly</changefreq></url>"
+            )
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "\n".join(urls)
+        + "\n</urlset>\n"
+    )
+    return PlainTextResponse(xml, media_type="application/xml")
+
+
+@app.get("/feed.xml", response_class=PlainTextResponse)
+async def rss_feed():
+    """RSS 2.0 feed of ready offers — syndicatable to aggregators (no social, no PII)."""
+    import xml.sax.saxutils as _sax
+
+    products = [p for p in store.list_products(settings.db_path) if p.get("status") == "ready"]
+    base = "https://aiautomatedsystems.ca"
+    items = []
+    for p in products:
+        title = _sax.escape(p.get("name", p["slug"]))
+        link = f"{base}/p/{p['slug']}"
+        desc = _sax.escape(p.get("offer") or p.get("audience") or "")
+        price = _sax.escape(p.get("price") or "")
+        items.append(
+            f"  <item>\n"
+            f"    <title>{title}</title>\n"
+            f"    <link>{link}</link>\n"
+            f"    <guid>{link}</guid>\n"
+            f"    <description>{desc} — {price}</description>\n"
+            f"  </item>"
+        )
+    rss = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<rss version="2.0">\n<channel>\n'
+        f"  <title>AI Automated Systems — Products</title>\n"
+        f"  <link>{base}/</link>\n"
+        f"  <description>Automation, audits, and tooling for builders &amp; agencies</description>\n"
+        + "\n".join(items)
+        + "\n</channel>\n</rss>\n"
+    )
+    return PlainTextResponse(rss, media_type="application/rss+xml")
+
+
+def _product_jsonld(p: dict) -> str:
+    """Schema.org Product structured data for rich results (no personal identity)."""
+    import json as _json
+    data = {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": p.get("name", p["slug"]),
+        "description": p.get("offer") or p.get("audience") or "",
+        "offers": {
+            "@type": "Offer",
+            "priceCurrency": "USD",
+            "availability": "https://schema.org/InStock"
+            if p.get("status") == "ready"
+            else "https://schema.org/OutOfStock",
+        },
+    }
+    if p.get("price"):
+        # Best-effort numeric extraction for the offer price.
+        import re as _re
+        m = _re.search(r"[\d,]+(?:\.\d+)?", p["price"].replace(",", ""))
+        if m:
+            data["offers"]["price"] = float(m.group(0))
+    return _json.dumps(data, separators=(",", ":"))
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     products = store.list_products(settings.db_path)
@@ -290,6 +382,16 @@ async def product_landing(slug: str):
             html = html.replace("</body>", f"{inject}\n</body>", 1)
         else:
             html = f"{html}\n{inject}\n"
+    # Inject Schema.org Product JSON-LD for rich results (idempotent).
+    if "application/ld+json" not in html:
+        product = store.get_product(slug_safe, settings.db_path)
+        if product:
+            ld = _product_jsonld(product)
+            ld_script = f'<script type="application/ld+json">{ld}</script>'
+            if "</body>" in html:
+                html = html.replace("</body>", f"{ld_script}\n</body>", 1)
+            else:
+                html = f"{html}\n{ld_script}\n"
     return HTMLResponse(content=html)
 
 
@@ -305,6 +407,46 @@ async def api_product(slug: str):
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     return {"product": product}
+
+
+@app.get("/blog", response_class=HTMLResponse)
+async def blog_index():
+    """Programmatic content hub — indexed by crawlers, no personal identity.
+    Reuses product insight data as evergreen SEO content pages."""
+    products = [p for p in store.list_products(settings.db_path) if p.get("status") == "ready"]
+    cards = []
+    for p in products:
+        name = p.get("name", p["slug"])
+        slug = p["slug"]
+        blurb = (p.get("offer") or p.get("audience") or "").strip()
+        cards.append(
+            f'<article class="card">'
+            f'<a href="/p/{slug}"><h3>{name}</h3></a>'
+            f'<p>{blurb}</p>'
+            f'<a class="btn" href="/p/{slug}">View offer</a>'
+            f"</article>"
+        )
+    body = "\n".join(cards)
+    html = f"""<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Lab Insights &amp; Offers</title>
+<meta name="description" content="Practical automation, audits, and tooling insights for local AI lab operators and agencies.">
+<script src="/landing-assets/analytics.js" defer></script>
+<style>
+:root{{--bg:#0b0d12;--card:#151922;--text:#e7e9ee;--muted:#9aa3b2;--accent:#f3a73c}}
+*{{box-sizing:border-box}} body{{font-family:Inter,system-ui,sans-serif;margin:0;background:var(--bg);color:var(--text)}}
+header{{padding:2.5rem 1rem;text-align:center}} h1{{margin:0;font-size:2rem}}
+.sub{{color:var(--muted);margin-top:.5rem}}
+.grid{{max-width:1000px;margin:0 auto;padding:1rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem}}
+.card{{background:var(--card);border:1px solid #222a36;border-radius:12px;padding:1.25rem}}
+.card h3{{margin:.2rem 0 .5rem}} .card p{{color:var(--muted);font-size:.92rem;min-height:3rem}}
+.btn{{display:inline-block;margin-top:.6rem;color:var(--accent);text-decoration:none;font-weight:600}}
+</style></head><body>
+<header><h1>AI Lab Insights &amp; Offers</h1><p class="sub">Automation, audits, and tooling for builders &amp; agencies</p></header>
+<main class="grid">{body}</main>
+<script type="application/ld+json">{{"@context":"https://schema.org","@type":"CollectionPage","name":"AI Lab Insights","url":"https://aiautomatedsystems.ca/blog"}}</script>
+</body></html>"""
+    return HTMLResponse(content=html)
 
 
 @app.post("/api/lead")

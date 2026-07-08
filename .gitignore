@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Tool/cache dirs that should never be committed
+.cache/
+.cargo/
+node_modules/
+dist/
+build/
+
+# OS
+.DS_Store
+
+# --- Hardonian bootstrap kit ---
+# Hardonian standard ignores
+!.env.template
+target/
+*.log
+.idea/
+.vscode/
+.coverage
+htmlcov/

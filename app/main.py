@@ -22,6 +22,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Any, Dict, Optional
 
 from app import store
+from app import flags as flag_engine
 
 # ── Analytics (local-first conversion tracking) ───────────────────────────────
 # The storefront ships an analytics.js client that previously POSTed to a remote
@@ -208,11 +209,65 @@ async def health():
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index():
+async def index(request: Request):
     products = store.list_products(settings.db_path)
+    # Feature flags (read live from flags.json — no redeploy to course-correct).
+    newsletter_on = flag_engine.get_flag("newsletter_enabled", True)
+    trust_bar_on = flag_engine.get_flag("trust_bar_enabled", True)
+    hero_variant = flag_engine.evaluate_variant("hero_variant", _session_from(request))
+    cta_variant = flag_engine.evaluate_variant("cta_variant", _session_from(request))
+    dense_grid = flag_engine.get_flag("product_grid_dense", False)
     tmpl = jinja_env.get_template("index.html")
-    html = tmpl.render(products=products, title="AI Products — Storefront")
+    html = tmpl.render(
+        products=products,
+        title="AI Products — Storefront",
+        newsletter_enabled=newsletter_on,
+        trust_bar_enabled=trust_bar_on,
+        hero_variant=hero_variant,
+        cta_variant=cta_variant,
+        product_grid_dense=dense_grid,
+    )
     return HTMLResponse(content=html)
+
+
+def _session_from(request: Request) -> str:
+    """Best-effort sticky session key (cookie > forwarded IP > client IP)."""
+    sid = request.cookies.get("aas_sid")
+    if sid:
+        return sid
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return (request.client.host if request.client else "anon")
+
+
+@app.get("/api/flags")
+async def api_flags_get(x_api_key: Optional[str] = Header(default=None)):
+    if not settings.api_key:
+        raise HTTPException(status_code=503, detail="API key not configured on server")
+    if x_api_key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return {
+        "flags": flag_engine.load_flags(),
+        "schema": flag_engine.FLAG_SCHEMA,
+    }
+
+
+@app.post("/api/flags")
+async def api_flags_set(payload: Dict[str, Any] = Body(default={}),
+                        x_api_key: Optional[str] = Header(default=None)):
+    if not settings.api_key:
+        raise HTTPException(status_code=503, detail="API key not configured on server")
+    if x_api_key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    name = payload.get("name")
+    value = payload.get("value")
+    if not name:
+        raise HTTPException(status_code=422, detail="name required")
+    ok = flag_engine.set_flag(name, value)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"unknown flag: {name}")
+    return {"ok": True, "flag": name, "value": value}
 
 
 @app.get("/p/{slug}", response_class=HTMLResponse)

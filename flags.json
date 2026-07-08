@@ -1,0 +1,11 @@
+{
+  "flags": {
+    "newsletter_enabled": true,
+    "trust_bar_enabled": true,
+    "hero_variant": "A",
+    "cta_variant": "A",
+    "analytics_sampling": 1.0,
+    "product_grid_dense": false
+  },
+  "updated_at": 1783551284.5790646
+}

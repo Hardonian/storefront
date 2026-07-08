@@ -73,6 +73,8 @@
     footer { text-align: center; margin-top: 3rem; color: var(--text-muted); font-size: 0.85rem; }
     footer a { color: var(--accent); text-decoration: none; }
     .empty { text-align: center; padding: 3rem; color: var(--text-muted); }
+    .grid.grid-dense { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+    .grid.grid-dense .card-img { height: 130px; }
     .newsletter {
       max-width: 640px; margin: 0 auto 2.5rem; padding: 1.5rem;
       background: var(--card); border: 1px solid var(--border); border-radius: 12px;
@@ -103,65 +105,74 @@
   <script src="/landing-assets/analytics.js" defer></script>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>AI Products</h1>
-      <p>Automation, audits, and tooling for builders &amp; agencies</p>
-    </header>
-
-    <div class="trust-bar">
-      <span class="pill">🔒 <b>Secure checkout</b> via Stripe &amp; Gumroad</span>
-      <span class="pill">✅ <b>30-day</b> money-back guarantee</span>
-      <span class="pill">⚡ <b>Instant</b> digital delivery</span>
-      <span class="pill">🛠️ <b>Done-for-you</b> options available</span>
-    </div>
-
-    <div class="newsletter">
-      <h2>Get the AI Lab Monetization Playbook</h2>
-      <p>Free 1-page guide + early access to new tooling. No spam.</p>
-      <form id="nl-form">
-        <input type="email" id="nl-email" placeholder="you@company.com" required>
-        <button type="submit" class="btn btn-primary">Subscribe</button>
-      </form>
-      <div class="msg" id="nl-msg"></div>
-    </div>
-
-    {% if products %}
-    <div class="grid">
-      {% for p in products %}
-      <div class="card">
-        {% if p.image_path %}
-        <a href="/p/{{ p.slug }}">
-          <img src="{{ p.image_path }}" alt="{{ p.name }}" class="card-img" loading="lazy">
-        </a>
-        {% endif %}
-        <div>
-          {% if p.status == 'ready' %}
-          <span class="badge badge-ready">Ready</span>
-          {% else %}
-          <span class="badge badge-draft">{{ p.status }}</span>
-          {% endif %}
-        </div>
-        <h3>{{ p.name }}</h3>
-        {% if p.audience %}<p class="audience">For: {{ p.audience }}</p>{% endif %}
-        {% if p.offer %}<p class="audience">{{ p.offer }}</p>{% endif %}
-        {% if p.price %}<p class="price">{{ p.price }}</p>{% endif %}
-        <div class="actions">
-          <a href="/p/{{ p.slug }}" class="btn btn-secondary">View Details</a>
-          {% if p.status == 'ready' %}
-            {% if p.gumroad_url %}
-            <a href="{{ p.gumroad_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">Buy on Gumroad</a>
-            {% elif p.checkout_url %}
-            <a href="{{ p.checkout_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">Buy Now</a>
-            {% endif %}
-          {% else %}
-            <a href="/p/{{ p.slug }}" class="btn btn-primary">Contact / Details</a>
-          {% endif %}
-        </div>
-      </div>
-      {% endfor %}
-    </div>
+<div class="container">
+  <header>
+    {% if hero_variant == 'B' %}
+    <h1>Turn Your AI Lab Into Revenue</h1>
+    <p>Done-for-you audits, automation, and tooling that pay for themselves</p>
     {% else %}
+    <h1>AI Products</h1>
+    <p>Automation, audits, and tooling for builders &amp; agencies</p>
+    {% endif %}
+  </header>
+
+  {% if trust_bar_enabled %}
+  <div class="trust-bar">
+    <span class="pill">🔒 <b>Secure checkout</b> via Stripe &amp; Gumroad</span>
+    <span class="pill">✅ <b>30-day</b> money-back guarantee</span>
+    <span class="pill">⚡ <b>Instant</b> digital delivery</span>
+    <span class="pill">🛠️ <b>Done-for-you</b> options available</span>
+  </div>
+  {% endif %}
+
+  {% if newsletter_enabled %}
+  <div class="newsletter">
+    <h2>Get the AI Lab Monetization Playbook</h2>
+    <p>Free 1-page guide + early access to new tooling. No spam.</p>
+    <form id="nl-form">
+      <input type="email" id="nl-email" placeholder="you@company.com" required>
+      <button type="submit" class="btn btn-primary">Subscribe</button>
+    </form>
+    <div class="msg" id="nl-msg"></div>
+  </div>
+  {% endif %}
+
+  {% if products %}
+  <div class="grid {% if product_grid_dense %}grid-dense{% endif %}">
+    {% for p in products %}
+    <div class="card">
+      {% if p.image_path %}
+      <a href="/p/{{ p.slug }}">
+        <img src="{{ p.image_path }}" alt="{{ p.name }}" class="card-img" loading="lazy">
+      </a>
+      {% endif %}
+      <div>
+        {% if p.status == 'ready' %}
+        <span class="badge badge-ready">Ready</span>
+        {% else %}
+        <span class="badge badge-draft">{{ p.status }}</span>
+        {% endif %}
+      </div>
+      <h3>{{ p.name }}</h3>
+      {% if p.audience %}<p class="audience">For: {{ p.audience }}</p>{% endif %}
+      {% if p.offer %}<p class="audience">{{ p.offer }}</p>{% endif %}
+      {% if p.price %}<p class="price">{{ p.price }}</p>{% endif %}
+      <div class="actions">
+        <a href="/p/{{ p.slug }}" class="btn btn-secondary">View Details</a>
+        {% if p.status == 'ready' %}
+          {% if p.gumroad_url %}
+          <a href="{{ p.gumroad_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">{% if cta_variant == 'B' %}Get It on Gumroad{% else %}Buy on Gumroad{% endif %}</a>
+          {% elif p.checkout_url %}
+          <a href="{{ p.checkout_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">{% if cta_variant == 'B' %}Get Instant Access{% else %}Buy Now{% endif %}</a>
+          {% endif %}
+        {% else %}
+          <a href="/p/{{ p.slug }}" class="btn btn-primary">Contact / Details</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
     <div class="empty">
       <p>No products available yet. Check back soon.</p>
     </div>
@@ -173,6 +184,15 @@
   </div>
 
   <script>
+    // Sticky A/B session id (so hero/cta variants stay consistent per visitor)
+    (function () {
+      try {
+        if (!document.cookie.match(/(^|; )aas_sid=/)) {
+          var sid = 's' + Date.now() + Math.random().toString(36).substr(2, 8);
+          document.cookie = 'aas_sid=' + sid + '; path=/; max-age=2592000; SameSite=Lax';
+        }
+      } catch (e) {}
+    })();
     (function () {
       var form = document.getElementById('nl-form');
       var msg = document.getElementById('nl-msg');

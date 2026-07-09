@@ -622,6 +622,15 @@ def _lab_status() -> dict:
     except Exception:
         uptime = None
 
+    # Dependency map (blast radius for the solo-founder)
+    deps = {}
+    try:
+        deps_path = Path("/home/scott/ai-lab/config/dependency-map.json")
+        if deps_path.exists():
+            deps = json.loads(deps_path.read_text())
+    except Exception:
+        deps = {}
+
     # Course-correction last ledger entry
     ledger = "/home/scott/ai-lab/reports/course-correction/ledger.jsonl"
     last_sprint = None
@@ -674,6 +683,7 @@ def _lab_status() -> dict:
         "cron_errors_24h": cron_errors_24h,
         "gpu": gpu,
         "uptime_7d_pct": uptime,
+        "deps": deps,
     }
 
 
@@ -718,6 +728,10 @@ async def status_page():
         f'<td>{d.get("free_mib","?")} MiB free</td></tr>'
         for g, d in s.get("gpu", {}).items() if g != "_total"
     )
+    deps_rows = "".join(
+        f'<tr><td><b>{n.get("node")}</b></td><td class="meta">{", ".join(n.get("needs", []))}</td></tr>'
+        for n in s.get("deps", {}).get("revenue_path", [])
+    )
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>Lab Status</title>
 <style>body{{font-family:Inter,system-ui,sans-serif;background:#0b0d12;color:#e7e9ee;margin:0;padding:2rem}}
@@ -752,6 +766,10 @@ table{{width:100%;border-collapse:collapse}} td{{padding:.4rem .6rem;border-bott
 <div class="card"><h3>Uptime (7d)</h3>
 <p>health-check pass rate: <b class="{ 'bad' if (s.get('uptime_7d_pct') or 100) < 99 else 'ok' }">{s.get('uptime_7d_pct','n/a')}%</b></p>
 <p class="meta">from /home/scott/ai-lab/reports/health heal-*.json</p>
+</div>
+<div class="card"><h3>Revenue Path (blast radius)</h3>
+{deps_rows if deps_rows else '<p class="meta">dependency-map.json missing</p>'}
+<p class="meta">storefront → stripe-webhook → gumroad/approver</p>
 </div>
 </body></html>"""
     return HTMLResponse(content=html)

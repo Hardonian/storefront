@@ -507,6 +507,24 @@ def _lab_status() -> dict:
     except Exception:
         inbox = []
 
+    # Pending approval queue (solo-founder gate: drafts/archives awaiting your yes)
+    pending = []
+    try:
+        pq = "/home/scott/ai-lab/reports/pending_review.jsonl"
+        if os.path.exists(pq):
+            for line in open(pq):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                if r.get("status") == "pending":
+                    pending.append(r)
+    except Exception:
+        pending = []
+
     # Course-correction last ledger entry
     ledger = "/home/scott/ai-lab/reports/course-correction/ledger.jsonl"
     last_sprint = None
@@ -554,6 +572,7 @@ def _lab_status() -> dict:
         "seo": seo,
         "analytics": analytics,
         "inbox": inbox,
+        "pending_review": pending,
     }
 
 
@@ -581,6 +600,13 @@ async def status_page():
         f'<td class="meta">{r.get("action","")}</td></tr>'
         for r in s.get("inbox", [])
     )
+    pending_rows = "".join(
+        f'<tr><td>{r.get("kind","?")}</td>'
+        f'<td>{r.get("slug","?")}</td>'
+        f'<td>{r.get("title","")}</td>'
+        f'<td class="meta">{r.get("action","")}</td></tr>'
+        for r in s.get("pending_review", [])
+    )
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>Lab Status</title>
 <style>body{{font-family:Inter,system-ui,sans-serif;background:#0b0d12;color:#e7e9ee;margin:0;padding:2rem}}
@@ -597,6 +623,9 @@ table{{width:100%;border-collapse:collapse}} td{{padding:.4rem .6rem;border-bott
 <p class="meta">course-correction sprint items: {s['last_sprint_items']}</p></div>
 <div class="card"><h3>Operator Inbox (needs your eyes)</h3>
 {inbox_rows if inbox_rows else '<p class="meta">all clear — no open items</p>'}
+</div>
+<div class="card"><h3>Pending Your Approval ({len(s.get('pending_review', []))})</h3>
+{pending_rows if pending_rows else '<p class="meta">nothing pending — queue clear</p>'}
 </div>
 </body></html>"""
     return HTMLResponse(content=html)

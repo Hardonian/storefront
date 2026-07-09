@@ -92,17 +92,62 @@ def get_flag(name: str, default: Any = None, path: Path = DEFAULT_FLAG_PATH) -> 
 
 def evaluate_variant(name: str, session_id: str,
                      path: Path = DEFAULT_FLAG_PATH) -> str:
-    """Return the current value of an `ab` (or any) flag.
+    """Return the variant a given session should see.
 
-    The operator-set value wins (live course-correction). The session_id is accepted
-    for API symmetry / future sticky-bucketing but the authoritative value is the
-    flag's current scalar, so flipping a flag via /api/flags takes effect immediately
-    for every visitor without a redeploy.
+    Priority:
+      1. If an A/B experiment is active for this flag, bucket by session hash
+         (deterministic 50/50 split, sticky per session).
+      2. Otherwise return the operator-set scalar value (live course-correction).
     """
     spec = FLAG_SCHEMA.get(name)
     if not spec:
         return str(get_flag(name, path=path))
+    # Active experiment overrides the static value.
+    exp = _active_experiment(path)
+    if exp and exp.get("flag") == name:
+        if exp.get("force_winner"):
+            return str(exp["force_winner"])  # proven winner pinned for everyone
+        variants = spec.get("variants", ["A", "B"])
+        # Stable, non-salted bucket so the 50/50 split is consistent across processes.
+        import hashlib
+        digest = hashlib.sha256(f"ab:{name}:{session_id}".encode()).hexdigest()
+        bucket = int(digest, 16) % len(variants)
+        return str(variants[bucket])
     return str(get_flag(name, path=path))
+
+
+def _experiment_path(path: Path) -> Path:
+    return path.parent / "experiment.json"
+
+
+def _active_experiment(path: Path) -> Optional[Dict[str, Any]]:
+    ep = _experiment_path(path)
+    if not ep.exists():
+        return None
+    try:
+        return json.loads(ep.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def start_experiment(flag: str, force_winner: Optional[str] = None,
+                     path: Path = DEFAULT_FLAG_PATH) -> Dict[str, Any]:
+    """Begin an A/B experiment on an `ab` flag.
+
+    force_winner (e.g. "B") ends the test immediately and pins that variant for
+    everyone — used by the course-correction loop once a winner is proven.
+    """
+    if flag not in FLAG_SCHEMA or FLAG_SCHEMA[flag].get("type") != "ab":
+        raise ValueError(f"{flag} is not an A/B flag")
+    exp = {"flag": flag, "started_at": time.time(), "force_winner": force_winner}
+    _experiment_path(path).write_text(json.dumps(exp, indent=2), encoding="utf-8")
+    return exp
+
+
+def stop_experiment(path: Path = DEFAULT_FLAG_PATH) -> None:
+    ep = _experiment_path(path)
+    if ep.exists():
+        ep.unlink()
 
 
 def should_sample(session_id: str, path: Path = DEFAULT_FLAG_PATH) -> bool:

@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 import os
 import json
+import datetime
 import re
 from pathlib import Path
 from collections import defaultdict, deque
@@ -483,6 +484,29 @@ def _lab_status() -> dict:
         except Exception:
             experiment = None
 
+    # Operator inbox (open items needing attention)
+    inbox = []
+    try:
+        inbox_path = "/home/scott/ai-lab/reports/operator-inbox.jsonl"
+        if os.path.exists(inbox_path):
+            cutoff = time.time() - 24 * 3600
+            for line in open(inbox_path):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                try:
+                    ts = datetime.datetime.fromisoformat(r["ts"]).timestamp()
+                except Exception:
+                    ts = 0
+                if ts >= cutoff:
+                    inbox.append(r)
+    except Exception:
+        inbox = []
+
     # Course-correction last ledger entry
     ledger = "/home/scott/ai-lab/reports/course-correction/ledger.jsonl"
     last_sprint = None
@@ -529,6 +553,7 @@ def _lab_status() -> dict:
         "last_sprint_items": len(last_sprint) if last_sprint else 0,
         "seo": seo,
         "analytics": analytics,
+        "inbox": inbox,
     }
 
 
@@ -549,6 +574,13 @@ async def status_page():
         for k, v in s["seo"].items()
     )
     exp = s["experiment"] or {"flag": "none", "force_winner": None}
+    inbox_rows = "".join(
+        f'<tr><td class="bad">{r.get("severity","?")}</td>'
+        f'<td>{r.get("kind","?")}</td>'
+        f'<td>{r.get("message","")}</td>'
+        f'<td class="meta">{r.get("action","")}</td></tr>'
+        for r in s.get("inbox", [])
+    )
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>Lab Status</title>
 <style>body{{font-family:Inter,system-ui,sans-serif;background:#0b0d12;color:#e7e9ee;margin:0;padding:2rem}}
@@ -563,6 +595,9 @@ table{{width:100%;border-collapse:collapse}} td{{padding:.4rem .6rem;border-bott
 <div class="card"><h3>A/B Experiment</h3><p>flag: <b>{exp.get('flag')}</b> | winner: <b>{exp.get('force_winner') or 'running'}</b></p></div>
 <div class="card"><h3>Analytics</h3><p>page_views: <b>{s['analytics'].get('page_views')}</b> | events: <b>{s['analytics'].get('by_event')}</b></p>
 <p class="meta">course-correction sprint items: {s['last_sprint_items']}</p></div>
+<div class="card"><h3>Operator Inbox (needs your eyes)</h3>
+{inbox_rows if inbox_rows else '<p class="meta">all clear — no open items</p>'}
+</div>
 </body></html>"""
     return HTMLResponse(content=html)
 

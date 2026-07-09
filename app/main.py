@@ -313,6 +313,20 @@ async def index(request: Request):
     hero_variant = flag_engine.evaluate_variant("hero_variant", _session_from(request))
     cta_variant = flag_engine.evaluate_variant("cta_variant", _session_from(request))
     dense_grid = flag_engine.get_flag("product_grid_dense", False)
+    # Most-popular slugs: top 3 by monthly_value_usd from offers.json (no traffic yet,
+    # so we surface the highest-addressable-value offers as social proof).
+    popular_slugs = []
+    try:
+        import json as _json
+        _offers = _json.loads(Path("/home/scott/ai-lab/productization/money-factory/offers.json").read_text())
+        def _val(o):
+            try:
+                return float(o.get("apva", {}).get("monthly_value_usd", 0) or 0)
+            except Exception:
+                return 0.0
+        popular_slugs = [o.get("slug") for o in sorted(_offers.get("offers", []), key=_val, reverse=True)[:3]]
+    except Exception:
+        popular_slugs = []
     tmpl = jinja_env.get_template("index.html")
     html = tmpl.render(
         products=products,
@@ -322,6 +336,7 @@ async def index(request: Request):
         hero_variant=hero_variant,
         cta_variant=cta_variant,
         product_grid_dense=dense_grid,
+        popular_slugs=popular_slugs,
     )
     return HTMLResponse(content=html)
 
@@ -525,6 +540,88 @@ def _lab_status() -> dict:
     except Exception:
         pending = []
 
+    # Disk usage (root + the big data mounts)
+    disk = {}
+    try:
+        import shutil
+        for mp in ["/", "/opt", "/home"]:
+            try:
+                u = shutil.disk_usage(mp)
+                pct = round(u.used / u.total * 100)
+                disk[mp] = {"used_gb": round(u.used / 1e9), "total_gb": round(u.total / 1e9), "pct": pct}
+            except Exception:
+                pass
+    except Exception:
+        disk = {}
+
+    # Cron health (last 24h error count from operator inbox cron_error entries)
+    cron_errors_24h = 0
+    try:
+        if os.path.exists(inbox_path):
+            cutoff = time.time() - 24 * 3600
+            for line in open(inbox_path):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                if r.get("kind") != "cron_error":
+                    continue
+                try:
+                    ts = datetime.datetime.fromisoformat(r["ts"]).timestamp()
+                except Exception:
+                    ts = 0
+                if ts >= cutoff:
+                    cron_errors_24h += 1
+    except Exception:
+        cron_errors_24h = None
+
+    # GPU status (from vramd :8001 /metrics)
+    gpu = {}
+    try:
+        import urllib.request
+        with urllib.request.urlopen("http://127.0.0.1:8001/metrics", timeout=3) as resp:
+            metrics = resp.read().decode()
+        total = 0
+        for line in metrics.splitlines():
+            if line.startswith("VRAMD_gpu_total "):
+                total = int(line.split()[-1])
+            m = re.match(r'VRAMD_gpu_free_memory_mib\{gpu="([^"]+)"\} (\d+)', line)
+            if m:
+                gpu[m.group(1)] = {"free_mib": int(m.group(2))}
+            m2 = re.match(r'VRAMD_gpu_info\{gpu="([^"]+)",vendor="([^"]+)",model="([^"]+)"\}', line)
+            if m2:
+                if m2.group(1) not in gpu:
+                    gpu[m2.group(1)] = {}
+                gpu[m2.group(1)].update({"vendor": m2.group(2), "model": m2.group(3)})
+        gpu["_total"] = total
+    except Exception:
+        gpu = {}
+
+    # Uptime % from health-check history (last 7 days, 30-min cadence = 336 runs)
+    uptime = None
+    try:
+        health_dir = Path("/home/scott/ai-lab/reports/health")
+        if health_dir.exists():
+            files = sorted(health_dir.glob("heal-*.json"))
+            recent = [f for f in files if (time.time() - f.stat().st_mtime) <= 7 * 86400]
+            ok = 0
+            for f in recent:
+                try:
+                    d = json.loads(f.read_text())
+                    # heal-*.json records actions taken; empty actions = healthy.
+                    actions = d.get("actions", [])
+                    if isinstance(actions, list) and len(actions) == 0:
+                        ok += 1
+                except Exception:
+                    pass
+            if recent:
+                uptime = round(ok / len(recent) * 100)
+    except Exception:
+        uptime = None
+
     # Course-correction last ledger entry
     ledger = "/home/scott/ai-lab/reports/course-correction/ledger.jsonl"
     last_sprint = None
@@ -573,6 +670,10 @@ def _lab_status() -> dict:
         "analytics": analytics,
         "inbox": inbox,
         "pending_review": pending,
+        "disk": disk,
+        "cron_errors_24h": cron_errors_24h,
+        "gpu": gpu,
+        "uptime_7d_pct": uptime,
     }
 
 
@@ -607,6 +708,16 @@ async def status_page():
         f'<td class="meta">{r.get("action","")}</td></tr>'
         for r in s.get("pending_review", [])
     )
+    disk_rows = "".join(
+        f'<tr><td>{mp}</td><td>{d.get("used_gb")}G / {d.get("total_gb")}G</td>'
+        f'<td class="{"bad" if d.get("pct",0) >= 85 else "ok"}">{d.get("pct")}%</td></tr>'
+        for mp, d in s.get("disk", {}).items()
+    )
+    gpu_rows = "".join(
+        f'<tr><td>{g}</td><td>{d.get("model","?")}</td>'
+        f'<td>{d.get("free_mib","?")} MiB free</td></tr>'
+        for g, d in s.get("gpu", {}).items() if g != "_total"
+    )
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>Lab Status</title>
 <style>body{{font-family:Inter,system-ui,sans-serif;background:#0b0d12;color:#e7e9ee;margin:0;padding:2rem}}
@@ -626,6 +737,21 @@ table{{width:100%;border-collapse:collapse}} td{{padding:.4rem .6rem;border-bott
 </div>
 <div class="card"><h3>Pending Your Approval ({len(s.get('pending_review', []))})</h3>
 {pending_rows if pending_rows else '<p class="meta">nothing pending — queue clear</p>'}
+</div>
+<div class="card"><h3>Disk Usage</h3>
+{disk_rows if disk_rows else '<p class="meta">n/a</p>'}
+</div>
+<div class="card"><h3>Cron Health (24h)</h3>
+<p>cron errors last 24h: <b class="{ 'bad' if (s.get('cron_errors_24h') or 0) > 0 else 'ok' }">{s.get('cron_errors_24h', 'n/a')}</b></p>
+<p class="meta">watchdog runs every 15m; failures surface in Operator Inbox</p>
+</div>
+<div class="card"><h3>GPU Fleet</h3>
+{gpu_rows if gpu_rows else '<p class="meta">vramd :8001 not reachable</p>'}
+<p class="meta">total GPUs: {s.get('gpu',{}).get('_total','?')}</p>
+</div>
+<div class="card"><h3>Uptime (7d)</h3>
+<p>health-check pass rate: <b class="{ 'bad' if (s.get('uptime_7d_pct') or 100) < 99 else 'ok' }">{s.get('uptime_7d_pct','n/a')}%</b></p>
+<p class="meta">from /home/scott/ai-lab/reports/health heal-*.json</p>
 </div>
 </body></html>"""
     return HTMLResponse(content=html)

@@ -70,6 +70,7 @@
     }
     .badge-ready { background: #166534; color: #4ade80; }
     .badge-draft { background: #3f3f46; color: #a1a1aa; }
+    .badge-popular { background: #f3a73c; color: #1a1205; font-weight: 700; }
     footer { text-align: center; margin-top: 3rem; color: var(--text-muted); font-size: 0.85rem; }
     footer a { color: var(--accent); text-decoration: none; }
     .empty { text-align: center; padding: 3rem; color: var(--text-muted); }
@@ -141,6 +142,7 @@
     <p>Free 1-page guide + early access to new tooling. No spam.</p>
     <form id="nl-form">
       <input type="email" id="nl-email" placeholder="you@company.com" required>
+      <input type="text" id="nl-code" placeholder="discount code (optional)" style="flex:0 0 180px;padding:0.7rem 1rem;border-radius:8px;border:1px solid var(--border);background:#0d0d0f;color:var(--text);font-size:0.9rem;">
       <button type="submit" class="btn btn-primary">Subscribe</button>
     </form>
     <div class="msg" id="nl-msg"></div>
@@ -161,6 +163,9 @@
         <span class="badge badge-ready">Ready</span>
         {% else %}
         <span class="badge badge-draft">{{ p.status }}</span>
+        {% endif %}
+        {% if p.slug in popular_slugs %}
+        <span class="badge badge-popular">★ Most Popular</span>
         {% endif %}
       </div>
       <h3>{{ p.name }}</h3>
@@ -210,12 +215,14 @@
       form.addEventListener('submit', function (e) {
         e.preventDefault();
         var email = document.getElementById('nl-email').value.trim();
+        var code = (document.getElementById('nl-code') || {}).value.trim();
         msg.className = 'msg';
         msg.textContent = 'Submitting…';
+        var tag = code ? ('discount-' + code.toLowerCase()) : 'newsletter';
         fetch('/api/subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email, tag: 'newsletter' })
+          body: JSON.stringify({ email: email, tag: tag })
         })
         .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
         .then(function () {

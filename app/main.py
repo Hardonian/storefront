@@ -16,13 +16,16 @@ from collections import defaultdict, deque
 from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException, Depends, Header, Body
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, EmailStr, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Any, Dict, Optional
+
+import asyncio
+import httpx
 
 from app import store
 from app import flags as flag_engine
@@ -201,6 +204,15 @@ if (LANDING_DIR / "assets").exists():
         "/landing-assets",
         StaticFiles(directory=str(LANDING_DIR / "assets")),
         name="landing-assets",
+    )
+
+# Serve canonical product assets at /product-assets/
+PRODUCT_ASSETS = Path('/home/scott/hardonia.store/products')
+if PRODUCT_ASSETS.exists():
+    app.mount(
+        '/product-assets',
+        StaticFiles(directory=str(PRODUCT_ASSETS)),
+        name='product-assets',
     )
 
 
@@ -383,34 +395,43 @@ async def api_flags_set(payload: Dict[str, Any] = Body(default={}),
 
 @app.get("/p/{slug}", response_class=HTMLResponse)
 async def product_landing(slug: str):
-    """Serve a static landing page by product slug, with analytics injected."""
-    # Sanitise slug to prevent path traversal
+    """Serve a dynamic product page: static landing if present, otherwise generated."""
     slug_safe = re.sub(r"[^a-zA-Z0-9_\\-]", "", slug)
     if slug_safe != slug:
         raise HTTPException(status_code=400, detail="Invalid slug")
 
     html_path = LANDING_DIR / f"{slug_safe}.html"
-    if not html_path.exists():
-        raise HTTPException(status_code=404, detail=f"Landing page '{slug}' not found")
+    if html_path.exists():
+        html = html_path.read_text(encoding="utf-8")
+    else:
+        product = store.get_product(slug_safe, settings.db_path)
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Product '{slug}' not found")
+        html = _render_product_page(product)
 
-    html = html_path.read_text(encoding="utf-8")
-    # Inject local-first analytics before </body> if not already present.
     inject = '<script src="/landing-assets/analytics.js" defer></script>'
     if "/landing-assets/analytics.js" not in html:
-        if "</body>" in html:
-            html = html.replace("</body>", f"{inject}\n</body>", 1)
-        else:
-            html = f"{html}\n{inject}\n"
-    # Inject Schema.org Product JSON-LD for rich results (idempotent).
-    if "application/ld+json" not in html:
-        product = store.get_product(slug_safe, settings.db_path)
-        if product:
+        html = html.replace("</head>", f"{inject}\n</head>", 1) if "</head>" in html else f"{html}\n{inject}\n"
+    product = store.get_product(slug_safe, settings.db_path)
+    if product:
+        image_path = product.get("image_path") or ""
+        if image_path and "cover" in image_path:
+            if image_path.startswith("/home/scott/hardonia.store/products/"):
+                rel = image_path.replace("/home/scott/hardonia.store/products/", "")
+                img_src = f"/product-assets/{rel}"
+            elif image_path.startswith("/"):
+                img_src = image_path
+            else:
+                img_src = f"/product-assets/{slug_safe}/{image_path}"
+            img_tag = f'<img src="{img_src}" alt="{product.get("name", slug_safe)}" style="max-width:100%;border-radius:8px;margin:1rem 0;border:1px solid #27272a;" />'
+            if '<body>' in html:
+                html = html.replace('<body>', f'<body>{img_tag}', 1)
+            elif '<div class="container">' in html:
+                html = html.replace('<div class="container">', f'<div class="container">{img_tag}', 1)
+        if "application/ld+json" not in html:
             ld = _product_jsonld(product)
             ld_script = f'<script type="application/ld+json">{ld}</script>'
-            if "</body>" in html:
-                html = html.replace("</body>", f"{ld_script}\n</body>", 1)
-            else:
-                html = f"{html}\n{ld_script}\n"
+            html = html.replace("</head>", f"{ld_script}\n</head>", 1) if "</head>" in html else f"{html}\n{ld_script}\n"
     return HTMLResponse(content=html)
 
 
@@ -692,6 +713,30 @@ async def api_lab_status():
     return _lab_status()
 
 
+@app.get("/api/gpu-status")
+async def api_gpu_status():
+    """Live GPU availability widget (item 2) — proxies to compute-api securely."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=8.0) as c:
+            r = await c.get("http://127.0.0.1:8011/audit/compute/v1/gpu")
+            d = r.json()
+        g = d.get("gpu", {})
+        used = g.get("vram_used_mib", 0)
+        total = g.get("vram_total_mib", 1)
+        free_pct = max(0, 100 - int(used / total * 100))
+        return {
+            "status": "ok",
+            "gpu": g.get("name"),
+            "vram_total_mib": total,
+            "vram_used_mib": used,
+            "free_pct": free_pct,
+            "ts": d.get("ts"),
+        }
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
 @app.get("/status", response_class=HTMLResponse)
 async def status_page():
     s = _lab_status()
@@ -830,7 +875,130 @@ async def api_track(payload: Dict[str, Any] = Body(default={})):
     return {"ok": True}
 
 
-@app.get("/api/analytics")
+# ── Item 4: 1-click buy — redirect to the product's existing Stripe link ──
+@app.get("/buy/{slug}")
+async def buy_redirect(slug: str):
+    product = store.get_product(slug, settings.db_path)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    url = product.get("checkout_url") or product.get("gumroad_url")
+    if not url or not url.startswith("http"):
+        # No instant link → capture as lead (higher-margin custom quote path).
+        _record_event(event="contact_click", product_slug=slug, checkout_url=None, page=f"/buy/{slug}", session_id=None, referrer=None)
+        return RedirectResponse(url=f"/p/{slug}#contact", status_code=302)
+    _record_event(event="checkout_click", product_slug=slug, checkout_url=url, page=f"/buy/{slug}", session_id=None, referrer=None)
+    return RedirectResponse(url=url, status_code=302)
+
+
+# ── Item 42: free lead magnet — live "Local AI Lab Audit" guide ──
+@app.get("/free-audit-guide", response_class=HTMLResponse)
+async def free_audit_guide():
+    """Self-contained HTML guide built from the lab's LIVE status (no PII, no theatrics)."""
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as c:
+            st = (await c.get("http://127.0.0.1:8000/api/status")).json()
+            gpu = (await c.get("http://127.0.0.1:8020/api/gpu-status")).json()
+    except Exception:
+        st, gpu = {}, {}
+    overall = st.get("overall", "unknown")
+    svc = st.get("summary", {})
+    free = gpu.get("free_pct", "?")
+    guide = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="description" content="Free Local AI Lab Audit Guide — check if your lab is earning, monitored, and secure.">
+<title>Free Local AI Lab Audit Guide</title></head><body style="font-family:system-ui;max-width:720px;margin:40px auto;padding:0 20px;color:#111">
+<h1>Free Local AI Lab Audit Guide</h1>
+<p>This guide is generated live from <a href="https://aiautomatedsystems.ca">our own lab</a> so you can copy the checklist.</p>
+<h2>1. Is it monitored?</h2>
+<p>Our lab status right now: <b>{OVERALL}</b> ({OPS}/{TOTAL} services operational).
+If yours can't answer that in one command, you're flying blind.</p>
+<h2>2. Are the GPUs earning?</h2>
+<p>Our GPUs show <b>{FREE}% VRAM free</b> — and we sell access via API. Idle GPUs are wasted money.</p>
+<h2>3. Is checkout real?</h2>
+<p>Every product must have a live Stripe/Gumroad link and a nightly QA check. Dead checkouts = lost sales.</p>
+<h2>4. Is it secure?</h2>
+<p>Rate-limit public APIs, scope keys, verify webhooks, and keep secrets out of source.</p>
+<h2>Your 4-point checklist</h2>
+<ul><li>Monitoring with alerting (not just a dashboard)</li>
+<li>GPUs monetized (API, not just inference)</li>
+<li>Real checkouts + automated QA</li>
+<li>Secrets in env, webhooks verified</li></ul>
+<p><a href="/subscribe" style="display:inline-block;padding:10px 16px;background:#111;color:#fff;text-decoration:none;border-radius:8px">Get the 1-page PDF + our audit script</a></p>
+<hr style="margin:24px 0;border:none;border-top:1px solid #eee">
+<h2>Try the GPU free (no signup)</h2>
+<p>We'll run a real job on our lab's GPU and show you the output. Drop your email to get the result + a compute credit code.</p>
+<form id="sbx" onsubmit="return runSbx(event)">
+  <input id="sbx-email" type="email" placeholder="you@domain.com" required
+         style="padding:10px;width:240px;border:1px solid #ccc;border-radius:6px">
+  <button type="submit" style="padding:10px 16px;background:#0a0;color:#fff;border:none;border-radius:6px;cursor:pointer">Run on GPU</button>
+</form>
+<pre id="sbx-out" style="margin-top:12px;white-space:pre-wrap;font-family:monospace;color:#0a0"></pre>
+<script>
+function runSbx(e){{
+  e.preventDefault();
+  var email=document.getElementById('sbx-email').value;
+  var out=document.getElementById('sbx-out');
+  out.textContent='Running on GPU... (cold load ~30s)';
+  fetch('/api/sandbox/run',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{email:email}}}})
+    .then(r=>r.json()).then(d=>{{
+      if(d.ok){{out.textContent='GPU result: '+d.output+'\\n(job '+d.job_id+' '+d.status+')';}}
+      else{{out.textContent='Status: '+(d.detail||d.status||'done')+' — buy compute access: /p/hardonia-compute-api-access';}}
+    }}).catch(e=>{{out.textContent='Error: '+e;}});
+  return false;
+}}
+</script>
+<p><small>Generated {TS} from a real, running lab.</small></p>
+</body></html>"""
+    guide = guide.format(
+        OVERALL=overall, OPS=svc.get('operational', 0), TOTAL=svc.get('total', 0),
+        FREE=free, TS=gpu.get('ts') or 'live')
+    return HTMLResponse(content=guide)
+
+
+# ── Item 5: free "try the GPU" sandbox — email-gated, rate-limited, proves GPUs ──
+_SANDBOX_RL = defaultdict(deque)
+_SANDBOX_LIMIT = 3  # per IP per 10 min
+
+
+@app.post("/api/sandbox/run")
+async def sandbox_run(payload: Dict[str, Any] = Body(default={}), request: Request = None):
+    ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+          or (request.client.host if request.client else "unknown"))
+    dq = _SANDBOX_RL[ip]
+    now = time.time()
+    while dq and now - dq[0] > 600:
+        dq.popleft()
+    if len(dq) >= _SANDBOX_LIMIT:
+        raise HTTPException(status_code=429, detail="Sandbox rate limit reached. Buy compute access for more.")
+    dq.append(now)
+    email = str(payload.get("email", "")).strip()
+    if email and _EMAIL_RE.match(email):
+        store.create_lead(email=email.lower().strip(), product_slug="sandbox-demo",
+                          source="sandbox", tag="sandbox-demo")
+    key = os.environ.get("COMPUTE_SANDBOX_KEY", "")
+    if not key:
+        raise HTTPException(status_code=503, detail="Sandbox not configured")
+    try:
+        import json as _json
+        async with httpx.AsyncClient(timeout=60.0) as c:
+            jr = await c.post("http://127.0.0.1:8050/api/v1/jobs",
+                              headers={"X-API-Key": key},
+                              json={"job_type": "chat", "model": "llama3.1:8b",
+                                    "prompt": "Reply with exactly: GPU_ONLINE", "max_tokens": 12})
+            jid = _json.loads(jr.text).get("job_id")
+            await c.post(f"http://127.0.0.1:8050/api/v1/jobs/{jid}/run", headers={"X-API-Key": key})
+            for _ in range(60):
+                await asyncio.sleep(3)
+                resp = await c.get(f"http://127.0.0.1:8050/api/v1/jobs/{jid}", headers={"X-API-Key": key})
+                j = _json.loads(resp.text)
+                if j.get("status") in ("completed", "failed"):
+                    return {"ok": True, "job_id": jid, "status": j["status"],
+                            "output": str(j.get("result", ""))[:120]}
+            return {"ok": False, "status": "timeout"}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Sandbox error: {e}")
+
 async def api_analytics(x_api_key: Optional[str] = Header(default=None)):
     if not settings.api_key:
         raise HTTPException(status_code=503, detail="API key not configured on server")
@@ -936,3 +1104,66 @@ def _markdown_to_html(md: str) -> str:
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=settings.port)
+
+# ── Dynamic product page renderer ─────────────────────────────────────────────
+
+def _render_product_page(product: dict) -> str:
+    slug = product.get("slug", "")
+    name = product.get("name", slug.replace("-", " ").title())
+    audience = product.get("audience") or "Local AI operators and builders"
+    pain = product.get("pain") or ""
+    offer = product.get("offer") or ""
+    price = product.get("price") or "Contact for pricing"
+    checkout = product.get("checkout_url") or product.get("gumroad_url") or ""
+    image_path = product.get("image_path") or ""
+    img_src = ""
+    if image_path:
+        if image_path.startswith("/home/scott/hardonia.store/products/"):
+            rel = image_path.replace("/home/scott/hardonia.store/products/", "")
+            img_src = f"/product-assets/{rel}"
+        elif image_path.startswith("/"):
+            img_src = image_path
+        else:
+            img_src = f"/product-assets/{slug}/{image_path}"
+    cta = ""
+    if checkout:
+        if checkout.startswith("http"):
+            cta = f'<a class="btn btn-primary" href="{checkout}" target="_blank" rel="noopener">Buy now</a>'
+        else:
+            cta = f'<a class="btn btn-primary" href="{checkout}">Get access</a>'
+    else:
+        cta = '<a class="btn btn-secondary" href="/api/revenue-os/outbound/console">Contact / Details</a>'
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{name}</title>
+<style>
+:root{{--bg:#0d0d0f;--card:#1a1a1e;--accent:#6366f1;--text:#e4e4e7;--muted:#a1a1aa;--border:#27272a;--price:#34d399}}
+*{{margin:0;box-sizing:border-box}}
+body{{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}}
+.container{{max-width:900px;margin:0 auto;padding:2rem 1.5rem}}
+.card{{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;margin:1rem 0}}
+.price{{color:var(--price);font-weight:700;font-size:1.2rem}}
+.btn{{display:inline-block;padding:.6rem 1.2rem;border-radius:8px;background:var(--accent);color:#fff;text-decoration:none;font-weight:600;margin-top:.75rem}}
+.btn-secondary{{background:transparent;color:var(--text);border:1px solid var(--border)}}
+img{{max-width:100%;border-radius:8px;border:1px solid var(--border)}}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>{name}</h1>
+    <p>{audience}</p>
+  </header>
+  {f'<img src="{img_src}" alt="{name}" />' if img_src else ''}
+  <section class="card">
+    <p><b>Pain:</b> {pain}</p>
+    <p><b>Offer:</b> {offer}</p>
+    <p class="price">{price}</p>
+    {cta}
+  </section>
+</div>
+</body>
+</html>"""

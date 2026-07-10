@@ -102,6 +102,16 @@
       border-radius: 999px; background: var(--card);
     }
     .trust-bar .pill b { color: var(--text); font-weight: 600; }
+    .gpu-widget {
+      max-width: 420px; margin: 0 auto 2.5rem; padding: 1.25rem 1.5rem;
+      background: linear-gradient(135deg, #1a1a1e, #16213a);
+      border: 1px solid var(--border); border-radius: 12px; text-align: center;
+    }
+    .gpu-live { font-size: 0.75rem; letter-spacing: 0.1em; color: var(--text-muted); text-transform: uppercase; }
+    .gpu-live .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #34d399; margin-right: 0.4rem; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .gpu-stat { font-size: 1.8rem; font-weight: 800; color: var(--price); margin: 0.25rem 0; }
+    .gpu-sub { color: var(--text-muted); font-size: 0.8rem; }
   </style>
   <script src="/landing-assets/analytics.js" defer></script>
   <script type="application/ld+json">
@@ -135,6 +145,13 @@
     <span class="pill">🛠️ <b>Done-for-you</b> options available</span>
   </div>
   {% endif %}
+
+  <div class="gpu-widget" id="gpu-widget">
+    <div class="gpu-live"><span class="dot" id="gpu-dot"></span> LIVE GPUs</div>
+    <div class="gpu-stat"><b id="gpu-free">--</b>% VRAM free</div>
+    <div class="gpu-sub" id="gpu-name">checking…</div>
+    <a href="/p/hardonia-compute-api-access" class="btn btn-primary" style="margin-top:.5rem">Run a job on these GPUs →</a>
+  </div>
 
   {% if newsletter_enabled %}
   <div class="newsletter">
@@ -235,6 +252,20 @@
           msg.textContent = 'Something went wrong. Try again.';
         });
       });
+    })();
+    // Live GPU widget (item 2)
+    (function () {
+      function tick() {
+        fetch('/api/gpu-status').then(function (r) { return r.json(); }).then(function (d) {
+          if (d.status !== 'ok') return;
+          document.getElementById('gpu-free').textContent = d.free_pct;
+          document.getElementById('gpu-name').textContent = d.gpu || 'GPU online';
+          var dot = document.getElementById('gpu-dot');
+          dot.style.background = d.free_pct > 50 ? '#34d399' : '#f3a73c';
+        }).catch(function () {});
+      }
+      tick();
+      setInterval(tick, 30000);
     })();
   </script>
 </body>

@@ -4,6 +4,8 @@ Public-facing product catalog, lead capture, and local-first conversion analytic
 for the AI lab revenue OS. Serves the 23 ready products (real Stripe/Gumroad
 checkouts), captures newsletter leads, and tracks page views + checkout clicks
 into a local SQLite `events` table — no third-party analytics dependency.
+<img src="/home/scott/ai-workspace/assets/repo-previews/storefront.png" alt="Storefront" width="800"/>
+
 
 ## Stack
 - Python 3.11+

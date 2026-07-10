@@ -112,6 +112,21 @@ app = FastAPI(
     description="Public-facing product catalog & lead capture",
 )
 
+
+# ── Cache control middleware ──────────────────────────────────────────────────
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class CacheControlMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith('/product-assets/'):
+            response.headers['Cache-Control'] = 'public, max-age=3600'
+        elif request.url.path.startswith('/landing-assets/'):
+            response.headers['Cache-Control'] = 'public, max-age=86400'
+        return response
+
+app.add_middleware(CacheControlMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

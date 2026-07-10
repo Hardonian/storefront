@@ -107,6 +107,27 @@ jinja_env = Environment(
 # ── FastAPI app ────────────────────────────────────────────────────────────────
 
 app = FastAPI(
+    middleware="http"
+)
+
+AGE_GATE_PRODUCTS = {"ai-portrait-studio"}
+
+@app.middleware("http")
+async def age_gate_middleware(request: Request, call_next):
+    path = request.url.path
+    product_slug = path.split("/")[-1] if path.startswith("/p/") else ""
+    if product_slug in AGE_GATE_PRODUCTS:
+        if request.cookies.get("age_verified") != "true":
+            if request.url.path.startswith("/age-verify"):
+                form = await request.body()
+                if b"confirmed=true" in form or request.query_params.get("confirmed") == "true":
+                    response = RedirectResponse(url=f"/p/{product_slug}", status_code=302)
+                    response.set_cookie("age_verified", "true", max_age=86400*365, httponly=True)
+                    return response
+            return HTMLResponse(content='<h1>Age Verification</h1><p>You must be 18+ to view this product.</p><form method="POST"><button name="confirmed" value="true">I am 18+</button></form>', status_code=403)
+    return await call_next(request)
+
+
     title="Storefront",
     version="0.1.0",
     description="Public-facing product catalog & lead capture",
@@ -1182,3 +1203,20 @@ img{{max-width:100%;border-radius:8px;border:1px solid var(--border)}}
 </div>
 </body>
 </html>"""
+
+
+
+@app.get("/legal/terms", response_class=HTMLResponse)
+async def terms_of_service():
+    md = Path("/home/scott/hardonia.store/products/legal/terms.md").read_text()
+    return _render_markdown(md, "Terms of Service")
+
+@app.get("/legal/privacy", response_class=HTMLResponse)
+async def privacy_policy():
+    md = Path("/home/scott/hardonia.store/products/legal/privacy.md").read_text()
+    return _render_markdown(md, "Privacy Policy")
+
+@app.get("/legal/data-retention", response_class=HTMLResponse)
+async def data_retention():
+    md = Path("/home/scott/hardonia.store/products/legal/data-retention.md").read_text()
+    return _render_markdown(md, "Data Retention Policy")

@@ -751,7 +751,15 @@ async def create_lead(payload: LeadCreate, request: Request):
         "lead", page=request.url.path, product_slug=payload.product_slug,
         checkout_url=None, session_id=None, referrer=request.headers.get("referer"),
     )
-    return {"status": "ok", "email": email}
+    # If this is a free-trial signup and a starter bundle exists, issue a
+    # short-lived signed download URL so the lead gets instant free value
+    # (legit free delivery; no paywall bypass — token is signed + expiring).
+    resp = {"status": "ok", "email": email}
+    if payload.source == "free_trial" and payload.product_slug:
+        bundle = Path("/home/scott/ai-lab/store/bundles") / f"{payload.product_slug}.zip"
+        if bundle.exists():
+            resp["download_url"] = build_download_url(payload.product_slug, ttl_seconds=86400)
+    return resp
 
 
 @app.post("/api/subscribe")
@@ -775,16 +783,14 @@ async def list_leads(x_api_key: Optional[str] = Header(None)):
     return {"leads": rows}
 
 
-# ── Instant download with signed URLs ──────────────────────────────────────
+# ── Instant download with signed URLs (token-redemption only) ───────────────
 from app.downloads import build_download_url, resolve_download
 from app.metrics import PrometheusMiddleware
 
-@app.get('/api/v1/download/{slug}')
-async def create_download_url(slug: str, ttl: int = Query(3600, ge=60, le=86400)):
-    if not (Path('/home/scott/ai-lab/store/bundles') / f'{slug}.zip').exists():
-        raise HTTPException(status_code=404, detail='Bundle not found')
-    return {'download_url': build_download_url(slug, ttl), 'slug': slug}
-
+# NOTE: download URLs are NOT generated via an open API. They are issued only
+# (a) by the checkout webhook after a verified purchase (delivery token), or
+# (b) by the free-trial capture route after a lead is recorded. This prevents
+# unauthenticated paywall bypass.
 
 @app.get('/download/{slug}')
 async def download_product(slug: str, expires: str = Query(...), token: str = Query(...)):

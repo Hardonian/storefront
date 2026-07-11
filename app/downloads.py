@@ -5,7 +5,13 @@ import hashlib
 from pathlib import Path
 from fastapi import HTTPException
 
-SECRET = os.environ.get('STOREFRONT_DOWNLOAD_SECRET', 'change-me')
+SECRET = os.environ.get('STOREFRONT_DOWNLOAD_SECRET', '')
+if not SECRET or SECRET in ('change-me', 'changeme', ''):
+    # Fail closed: never sign download tokens with a known/empty secret.
+    raise RuntimeError(
+        "STOREFRONT_DOWNLOAD_SECRET is not set (or still default). "
+        "Download URLs are disabled until a real secret is configured."
+    )
 BASE_DIR = Path('/home/scott/ai-lab/store/bundles')
 
 

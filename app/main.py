@@ -224,6 +224,21 @@ if (LANDING_DIR / "assets").exists():
         name="landing-assets",
     )
 
+# Serve standalone landing HTML previews at /landing/<slug>.html
+# These are the generated, real-CTA product landing pages.
+from fastapi.responses import FileResponse
+import os
+
+@app.get("/landing/{slug}.html")
+async def landing_html(slug: str):
+    # prevent path traversal
+    if "/" in slug or ".." in slug:
+        raise HTTPException(status_code=400, detail="bad slug")
+    p = LANDING_DIR / f"{slug}.html"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(str(p), media_type="text/html")
+
 # Serve canonical product assets at /product-assets/
 PRODUCT_ASSETS = Path('/home/scott/hardonia.store/products')
 if PRODUCT_ASSETS.exists():
@@ -551,13 +566,19 @@ footer a{{color:var(--accent);text-decoration:none}}
     has_free = "free to try" in price_str.lower()
     has_enterprise = "enterprise" in price_str.lower()
     cta_html = ""
+    checkout = product.get("checkout_url") or ""
     if has_free:
         cta_html += '<a class="cta secondary" href="/p/{slug}/free" data-slug="{slug}">🎁 Start free →</a>'.format(slug=slug)
     if product.get("status") == "ready":
-        if product.get("checkout_url"):
-            cta_html += f'<a class="cta" href="{product["checkout_url"]}" target="_blank" rel="noopener" data-slug="{slug}">⚡ Get Pro →</a>'
+        if checkout.startswith("http"):
+            cta_html += f'<a class="cta" href="{checkout}" target="_blank" rel="noopener" data-slug="{slug}">⚡ Get Pro →</a>'
+        elif checkout and "contact" in checkout.lower():
+            cta_html += f'<a class="cta" href="/contact?product={slug}" data-slug="{slug}">📩 Contact for pricing →</a>'
+        else:
+            # No usable checkout: route to contact so the lead is never lost (no dead end).
+            cta_html += f'<a class="cta" href="/contact?product={slug}" data-slug="{slug}">📩 Get access →</a>'
         if product.get("gumroad_url"):
-            cta_html += f'<a class="cta upgrade" href="{product["gumroad_url"]}" target="_blank" rel="noopener" data-slug="{slug}">⬆ Upgrade to Premium →</a>'
+            cta_html += f'<a class="cta upgrade" href="{product["gumroad_url"]}" target="_blank" rel="noopener" data-slug="{slug}">⬆ Also on Gumroad →</a>'
         if has_enterprise:
             cta_html += f'<a class="cta enterprise" href="/contact?product={slug}">🏢 Talk to Enterprise →</a>'
     else:

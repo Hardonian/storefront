@@ -804,7 +804,8 @@ async def api_contact(payload: dict = Body(default={})):
 @app.get("/sitemap.xml", response_class=PlainTextResponse)
 async def sitemap():
     products = store.list_products(settings.db_path)
-    urls = ["https://aiautomatedsystems.ca/", "https://aiautomatedsystems.ca/landing/gpu-compute-waitlist.html"]
+    urls = ["https://aiautomatedsystems.ca/", "https://aiautomatedsystems.ca/pricing",
+            "https://aiautomatedsystems.ca/blog", "https://aiautomatedsystems.ca/landing/gpu-compute-waitlist.html"]
     for p in products:
         slug = p.get("slug")
         if slug:
@@ -875,6 +876,59 @@ async def privacy_erase(payload: dict = Body(default={})):
         return {"ok": True, "erased_rows": n}
     except Exception as e:
         return {"ok": False, "reason": str(e)}
+
+
+@app.get("/blog", response_class=HTMLResponse)
+async def blog_index():
+    from pathlib import Path as _P
+    import html as _h
+    drafts = sorted(_P('/home/scott/ai-lab/reports/content/drafts').glob('*.md'), reverse=True) if _P('/home/scott/ai-lab/reports/content/drafts').exists() else []
+    items = []
+    for d in drafts[:30]:
+        title = d.read_text().splitlines()[0].lstrip('# ').strip() if d.read_text() else d.stem
+        slug = d.stem
+        items.append(f"<li><a href='/blog/{slug}'>{_h.escape(title)}</a></li>")
+    html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'><title>Blog — AI Automated Systems</title>
+<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:800px;margin:6vh auto;padding:0 20px;line-height:1.7}}
+h1{{font-size:2rem}} a{{color:#6366f1}} li{{margin:.5rem 0}}</style></head><body>
+<h1>📝 Local-AI Ops Blog</h1>
+<p class='muted'>Practical guides on self-hosting, ComfyUI, n8n, and private inference.</p>
+<ul>{''.join(items)}</ul>
+<p class='muted'><a href='/'>← Home</a> · <a href='/pricing'>Pricing</a></p>
+</body></html>"""
+    return html
+
+
+@app.get("/blog/{slug}", response_class=HTMLResponse)
+async def blog_post(slug: str):
+    from pathlib import Path as _P
+    import html as _h, re as _re
+    p = _P(f'/home/scott/ai-lab/reports/content/drafts/{slug}.md')
+    if not p.exists():
+        return HTMLResponse("<h1>Not found</h1>", status_code=404)
+    md = p.read_text()
+    # minimal md->html
+    out = []
+    for line in md.splitlines():
+        s = line.strip()
+        if s.startswith('## '):
+            out.append(f"<h2>{_h.escape(s[3:])}</h2>")
+        elif s.startswith('# '):
+            out.append(f"<h1>{_h.escape(s[2:])}</h1>")
+        elif s.startswith('- '):
+            out.append(f"<li>{_h.escape(s[2:])}</li>")
+        elif s:
+            out.append(f"<p>{_h.escape(s)}</p>")
+    body = "\n".join(out)
+    html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'><title>{_h.escape(slug)} — AI Automated Systems</title>
+<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:800px;margin:6vh auto;padding:0 20px;line-height:1.7}}
+h1,h2{{color:#fff}} a{{color:#6366f1}} p,li{{color:#d4d4d8}}</style></head><body>
+{body}
+<p class='muted'><a href='/blog'>← All posts</a></p>
+</body></html>"""
+    return html
 
 
 @app.post("/api/track")

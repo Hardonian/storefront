@@ -544,8 +544,17 @@ p,.pain{{color:var(--muted)}}
 .tiers th{{color:var(--muted);font-weight:600}}
 footer{{margin-top:2.5rem;color:var(--muted);font-size:.85rem}}
 footer a{{color:var(--accent);text-decoration:none}}
+.sticky-cta{{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);padding:.8rem 1rem;display:flex;gap:.6rem;justify-content:center;z-index:50}}
+@media(max-width:600px){{.sticky-cta{{flex-wrap:wrap}}}}
+.exit-modal{{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:60}}
+.exit-modal.show{{display:flex}}
+.exit-card{{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:2rem;max-width:420px;text-align:center}}
+.exit-card input{{width:100%;padding:.6rem;margin:.6rem 0;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)}}
 </style></head><body><div class="container">
-<a href="/">← Back to all products</a>
+<!-- SEO: JSON-LD Product -->
+<script type="application/ld+json">
+{{"@context":"https://schema.org","@type":"Product","name":"{product.get('name','')}","description":{(product.get('offer') or product.get('pain') or '')[:160]!r},"offers":{{"@type":"Offer","price":"{(product.get('price') or '').replace('$','').split('/')[0].strip()}","priceCurrency":"USD"}}}}
+</script>
 <h1>{product.get('name','')}</h1>
 <span class="badge">{product.get('status','draft')}</span>
 { f'<img class="img" src="{img}" alt="{product.get("name","")}">' if img else '' }
@@ -586,7 +595,29 @@ footer a{{color:var(--accent);text-decoration:none}}
     html += f'<div class="cta-row">{cta_html}</div>'
     html += """<footer>
 AI Automated Systems · <a href="/legal/terms-of-service">Terms</a> · <a href="/legal/privacy-policy">Privacy</a> · <a href="/legal/refund-policy">Refunds</a>
-</footer></div></body></html>"""
+</footer></div>
+<script>
+// Sticky CTA mirrors the in-page CTAs for mobile/no-scroll conversion.
+(function(){{
+  var row=document.querySelector('.cta-row');
+  if(row){{var bar=document.createElement('div');bar.className='sticky-cta';bar.innerHTML=row.innerHTML;document.body.appendChild(bar);}}
+  // Exit-intent email capture (lead magnet, not a dead form).
+  var fired=false;
+  function showExit(){{
+    if(fired)return;fired=true;
+    var m=document.createElement('div');m.className='exit-modal show';
+    m.innerHTML='<div class=\"exit-card\"><h3>Wait — grab the free AI Ops Checklist</h3><p>Get the local AI ops checklist + weekly lab tips.</p><input id=\"exit-email\" placeholder=\"you@email.com\" type=\"email\"><button onclick=\"exitSubmit()\" style=\"padding:.6rem 1.2rem;border-radius:8px;border:0;background:#6366f1;color:#fff;font-weight:700;cursor:pointer\">Send it →</button></div>';
+    document.body.appendChild(m);
+  }}
+  function exitSubmit(){{
+    var e=document.getElementById('exit-email').value;
+    if(e&&e.indexOf('@')>0){{fetch('/api/lead',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{email:e,product_slug:'{slug}',source:'exit-intent'}}}}).then(function(){{document.querySelector('.exit-modal').remove();}});}}
+  }}
+  window.exitSubmit=exitSubmit;
+  document.addEventListener('mouseout',function(e){{if(e.clientY<10)showExit();}});
+}})();
+</script>
+</body></html>"""
     return HTMLResponse(html)
 
 
@@ -639,11 +670,24 @@ button{{width:100%;padding:.9rem;border:0;border-radius:10px;background:#0ea5e9;
 a{{color:#6366f1}}</style></head><body><div class='card'>
 <h1>🏢 Enterprise & custom</h1>
 <p class='muted'>Tell us about your stack and volume. We reply within 1 business day with a tailored plan and onboarding.</p>
-<form action='mailto:enterprise@hardonia.store?subject={subj.replace(' ', '%20')}' method='post' enctype='text/plain'>
-<input name='name' placeholder='Your name' required>
-<input name='email' type='email' placeholder='you@company.com' required>
-<textarea name='needs' rows=5 placeholder='What are you building? Volume, SLA, compliance needs...'></textarea>
-<button type='submit'>Send enterprise inquiry →</button></form>
+<form id='contact-form'>
+<input name='name' id='cname' placeholder='Your name' required>
+<input name='email' id='cemail' type='email' placeholder='you@company.com' required>
+<textarea name='needs' id='cneeds' rows=5 placeholder='What are you building? Volume, SLA, compliance needs...'></textarea>
+<button type='submit'>Send enterprise inquiry →</button>
+<p id='cmsg' class='muted'></p>
+</form>
+<script>
+document.getElementById('contact-form').addEventListener('submit', async function(e){{
+  e.preventDefault();
+  var name=document.getElementById('cname').value;
+  var email=document.getElementById('cemail').value;
+  var needs=document.getElementById('cneeds').value;
+  var r=await fetch('/api/contact',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{name:name,email:email,needs:needs,product:'{product}'}})}});
+  document.getElementById('cmsg').textContent = r.ok ? '✅ Sent — we will reply within 1 business day.' : 'Try again.';
+}});
+</script>
 <p class='muted'><a href='/'>← Back to store</a></p>
 </div></body></html>"""
     return HTMLResponse(html)
@@ -708,6 +752,67 @@ async def api_products():
     products = store.list_products(settings.db_path)
     return {"products": products, "count": len(products)}
 
+
+@app.post("/api/lead")
+async def api_lead(payload: dict = Body(default={})):
+    """Capture a lead (exit-intent, contact form, waitlist). Fail-soft."""
+    import sqlite3 as _sql
+    email = (payload.get("email") or "").strip()
+    slug = payload.get("product_slug") or ""
+    source = payload.get("source") or "unknown"
+    if not email or "@" not in email:
+        return {"ok": False, "reason": "invalid_email"}
+    try:
+        db = _sql.connect(settings.db_path)
+        db.execute("""CREATE TABLE IF NOT EXISTS leads(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, product_slug TEXT,
+            source TEXT, notes TEXT, status TEXT DEFAULT 'new', created_at TEXT,
+            tag TEXT)""")
+        db.execute("INSERT OR IGNORE INTO leads(email,product_slug,source,status,created_at) VALUES(?,?,?,?,?)",
+                   (email, slug, source, "new", datetime.datetime.now(datetime.timezone.utc).isoformat()))
+        db.commit(); db.close()
+    except Exception as e:
+        return {"ok": False, "reason": str(e)}
+    return {"ok": True}
+
+
+@app.post("/api/contact")
+async def api_contact(payload: dict = Body(default={})):
+    """Enterprise/contact intake. Stores lead + fires Telegram alert. Fail-soft."""
+    import sqlite3 as _sql, subprocess
+    name = (payload.get("name") or "").strip()
+    email = (payload.get("email") or "").strip()
+    needs = (payload.get("needs") or "").strip()
+    slug = payload.get("product") or ""
+    if not email or "@" not in email:
+        return {"ok": False, "reason": "invalid_email"}
+    try:
+        db = _sql.connect(settings.db_path)
+        db.execute("""CREATE TABLE IF NOT EXISTS leads(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, product_slug TEXT,
+            source TEXT, notes TEXT, status TEXT DEFAULT 'new', created_at TEXT, tag TEXT)""")
+        db.execute("INSERT OR IGNORE INTO leads(email,product_slug,source,notes,status,created_at) VALUES(?,?,?,?,?,?)",
+                   (email, slug, "contact", f"{name}: {needs}"[:500], "new", datetime.datetime.now(datetime.timezone.utc).isoformat()))
+        db.commit(); db.close()
+        msg = f"📩 New contact: {name} <{email}> product={slug} — {needs[:120]}"
+        subprocess.run(['/home/scott/ai-lab/scripts/bin/telegram-alert.sh', msg], stderr=subprocess.DEVNULL)
+    except Exception as e:
+        return {"ok": False, "reason": str(e)}
+    return {"ok": True}
+
+
+@app.get("/sitemap.xml", response_class=PlainTextResponse)
+async def sitemap():
+    products = store.list_products(settings.db_path)
+    urls = ["https://aiautomatedsystems.ca/", "https://aiautomatedsystems.ca/landing/gpu-compute-waitlist.html"]
+    for p in products:
+        slug = p.get("slug")
+        if slug:
+            urls.append(f"https://aiautomatedsystems.ca/p/{slug}")
+            urls.append(f"https://aiautomatedsystems.ca/landing/{slug}.html")
+    body = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + \
+           "".join(f"  <url><loc>{u}</loc></url>\n" for u in urls) + "</urlset>"
+    return body
 
 @app.post("/api/track")
 async def track_event(payload: dict = Body(default={}), request: Request = None):

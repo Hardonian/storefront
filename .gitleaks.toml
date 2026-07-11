@@ -1,0 +1,20 @@
+# gitleaks.toml — Hardonia baseline
+# Allows local placeholder/sentinel strings but blocks real secrets.
+title = "Hardonia Secrets Scan"
+
+[extend]
+# use gitleaks default rules
+useDefault = true
+
+[allowlist]
+description = "Allow obvious placeholders/test sentinels, block real values"
+regexes = [
+  '''REPLACE_BEFORE_PUBLISH''',
+  '''whsec_test_placeholder''',
+  '''<REDACTED>''',
+  '''example\.com''',
+  '''your-.*-token''',
+]
+paths = [
+  '''(\.venv|node_modules|\.git|genai-githubs|image-cli/\.venv|reports/|store/bundles/)''',
+]

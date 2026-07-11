@@ -131,7 +131,7 @@ app.add_middleware(PrometheusMiddleware, service_name="storefront")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://aiautomatedsystems.ca", "https://www.aiautomatedsystems.ca", "http://127.0.0.1:8020", "http://localhost:8020"],
     allow_methods=["GET"],
     allow_headers=["*"],
     allow_credentials=False,

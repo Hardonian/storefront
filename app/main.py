@@ -805,7 +805,13 @@ async def api_contact(payload: dict = Body(default={})):
 async def sitemap():
     products = store.list_products(settings.db_path)
     urls = ["https://aiautomatedsystems.ca/", "https://aiautomatedsystems.ca/pricing",
-            "https://aiautomatedsystems.ca/blog", "https://aiautomatedsystems.ca/landing/gpu-compute-waitlist.html"]
+            "https://aiautomatedsystems.ca/blog", "https://aiautomatedsystems.ca/blog/rss.xml",
+            "https://aiautomatedsystems.ca/tools/gpu-cost-calculator",
+            "https://aiautomatedsystems.ca/compare/n8n-self-hosted",
+            "https://aiautomatedsystems.ca/compare/private-inference",
+            "https://aiautomatedsystems.ca/compare/comfyui-alternative",
+            "https://aiautomatedsystems.ca/compare/local-ai-stack",
+            "https://aiautomatedsystems.ca/landing/gpu-compute-waitlist.html"]
     for p in products:
         slug = p.get("slug")
         if slug:
@@ -876,6 +882,21 @@ async def privacy_erase(payload: dict = Body(default={})):
         return {"ok": True, "erased_rows": n}
     except Exception as e:
         return {"ok": False, "reason": str(e)}
+
+
+@app.get("/blog/rss.xml", response_class=PlainTextResponse)
+async def blog_rss():
+    from pathlib import Path as _P
+    import html as _h
+    drafts = sorted(_P('/home/scott/ai-lab/reports/content/drafts').glob('*.md'), reverse=True)[:20] if _P('/home/scott/ai-lab/reports/content/drafts').exists() else []
+    items = []
+    for d in drafts:
+        title = d.read_text().splitlines()[0].lstrip('# ').strip() if d.read_text() else d.stem
+        link = f'https://aiautomatedsystems.ca/blog/{d.stem}'
+        desc = _h.escape(d.read_text()[:200])
+        items.append(f'    <item><title>{_h.escape(title)}</title><link>{link}</link><guid>{link}</guid><description>{desc}</description></item>')
+    xml = '<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel>\n<title>AI Automated Systems — Local-AI Ops</title>\n<link>https://aiautomatedsystems.ca/blog</link>\n<description>Self-hosting, ComfyUI, n8n, and private inference guides.</description>\n' + chr(10).join(items) + '\n</channel></rss>'
+    return xml
 
 
 @app.get("/blog", response_class=HTMLResponse)
@@ -1039,3 +1060,49 @@ from app.metrics import PrometheusMiddleware
 async def download_product(slug: str, expires: str = Query(...), token: str = Query(...)):
     path = resolve_download(slug, expires, token)
     return FileResponse(path, filename=path.name, media_type='application/zip')
+
+
+@app.get('/tools/gpu-cost-calculator', response_class=HTMLResponse)
+async def gpu_calculator():
+    html = """<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'><title>GPU Cost Calculator — AI Automated Systems</title>
+<style>body{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:640px;margin:6vh auto;padding:0 20px;line-height:1.6}
+h1{font-size:1.8rem}label{display:block;margin:1rem 0 .3rem}a{color:#6366f1}
+input,select{width:100%;padding:.6rem;background:#1a1a1f;border:1px solid #333;color:#fff;border-radius:6px}
+button{margin-top:1.2rem;background:#6366f1;color:#fff;border:0;padding:.7rem 1.2rem;border-radius:6px;cursor:pointer}
+#out{margin-top:1.2rem;padding:1rem;background:#1a1a1f;border-radius:6px;font-size:1.1rem}</style></head>
+<body><h1>GPU Cost Calculator</h1>
+<p>Compare cloud vs your EPYC self-hosted GPUs (V100/P40).</p>
+<label>GPU type</label><select id='gpu'><option value='v100'>V100 (cloud $2.40/hr)</option><option value='p40'>P40 (cloud $0.90/hr)</option></select>
+<label>Hours/month</label><input id='hrs' type='number' value='720'>
+<label>Your EPYC power+amort (USD/hr)</label><input id='local' type='number' step='0.01' value='0.35'>
+<button onclick='calc()'>Calculate savings</button>
+<div id='out'></div>
+<p><a href='/p/hardonia-compute-api-access'>Rent our GPUs instead</a></p>
+<script>
+function calc(){var c={v100:2.40,p40:0.90}[document.getElementById('gpu').value];
+var h=+document.getElementById('hrs').value;var l=+document.getElementById('local').value;
+var cloud=c*h,local=l*h;var save=cloud-local;
+document.getElementById('out').innerHTML='Cloud: $'+cloud.toFixed(2)+'<br>Self-host/rent: $'+local.toFixed(2)+'<br><b>You save: $'+save.toFixed(2)+'/mo</b>';}
+</script></body></html>"""
+    return html
+
+
+@app.get('/compare/{topic}', response_class=HTMLResponse)
+async def compare_page(topic: str):
+    import html as _h
+    data = {
+        'comfyui-alternative': ('ComfyUI Alternative & Companion', 'ComfyUI is the standard for local image diffusion — but wiring it to a store, delivery, and paid render queue is the hard part. Hardonia ships the full bundle: workflows + compute access + done-for-you delivery.'),
+        'n8n-self-hosted': ('n8n Self-Hosted Starter', 'n8n self-hosted beats Zapier on cost at scale. Hardonia\'s kit includes docker-compose, credential hardening, and 10 automations pre-built.'),
+        'private-inference': ('Private LLM Inference', 'Run models with zero logging. Hardonia Private Inference Access gives you a metered, Stripe-billed endpoint on EPYC GPUs — no vendor sees your prompts.'),
+        'local-ai-stack': ('Build a Local AI Stack', 'From Ollama to ComfyUI to n8n — the local-first stack. Hardonia\'s AI Lab Power Bundle includes every piece with setup docs.'),
+    }
+    title, body = data.get(topic, ('Local AI Resources', 'Practical local-AI guides and bundles from Hardonia.'))
+    html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'><title>{_h.escape(title)} — AI Automated Systems</title>
+<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:720px;margin:6vh auto;padding:0 20px;line-height:1.7}}
+h1{{font-size:2rem}}a{{color:#6366f1}}p,li{{color:#d4d4d8}}</style></head><body>
+<h1>{_h.escape(title)}</h1><p>{_h.escape(body)}</p>
+<p><a href='/pricing'>See all bundles & pricing</a> · <a href='/blog'>Read the blog</a></p>
+<p><a href='/'>Home</a></p></body></html>"""
+    return html

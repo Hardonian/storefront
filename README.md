@@ -80,3 +80,6 @@ curl -s http://127.0.0.1:8020/api/products | head
   URLs live on the product pages (sourced from revenue-os).
 - The buyer catalog at `/` and `/p/{slug}` is the real conversion surface — it is
   server-rendered from the same data the sitemap and JSON API expose.
+
+## 🛒 Store
+Self-hosted AI infra, bundles & compute access: [aiautomatedsystems.ca](https://aiautomatedsystems.ca)

@@ -2,8 +2,8 @@
   "flags": {
     "newsletter_enabled": true,
     "trust_bar_enabled": true,
-    "hero_variant": "A",
-    "cta_variant": "A",
+    "hero_variant": "B",
+    "cta_variant": "B",
     "analytics_sampling": 1.0,
     "product_grid_dense": false
   },

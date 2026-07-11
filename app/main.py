@@ -1,5 +1,4 @@
-"""
-Storefront — public-facing product catalog & lead capture microservice.
+"""Storefront — public-facing product catalog & lead capture microservice.
 
 Run:  ./run.sh  (or uvicorn app.main:app --host 0.0.0.0 --port 8020)
 """
@@ -11,11 +10,12 @@ import os
 import json
 import datetime
 import re
+import subprocess
 from pathlib import Path
 from collections import defaultdict, deque
 from typing import Optional
 
-from fastapi import FastAPI, Request, HTTPException, Depends, Header, Body
+from fastapi import FastAPI, Request, HTTPException, Depends, Header, Body, Query
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -31,10 +31,6 @@ from app import store
 from app import flags as flag_engine
 
 # ── Analytics (local-first conversion tracking) ───────────────────────────────
-# The storefront ships an analytics.js client that previously POSTed to a remote
-# domain (aiautomatedsystems.ca/api/track) which is now down — meaning checkout
-# clicks and page views were silently dropped. We now capture them LOCALLY so the
-# operator gets real conversion signal instead of theatre.
 import sqlite3 as _sa_sqlite
 
 _ANALYTICS_DDL = """
@@ -48,6 +44,7 @@ CREATE TABLE IF NOT EXISTS events (
 );
 """
 
+
 def _init_analytics(db_path: str) -> None:
     conn = _sa_sqlite.connect(str(db_path))
     try:
@@ -55,6 +52,7 @@ def _init_analytics(db_path: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
 
 def _record_event(event: str, page: str | None, product_slug: str | None,
                   checkout_url: str | None, session_id: str | None,
@@ -107,27 +105,6 @@ jinja_env = Environment(
 # ── FastAPI app ────────────────────────────────────────────────────────────────
 
 app = FastAPI(
-    middleware="http"
-)
-
-AGE_GATE_PRODUCTS = {"ai-portrait-studio"}
-
-@app.middleware("http")
-async def age_gate_middleware(request: Request, call_next):
-    path = request.url.path
-    product_slug = path.split("/")[-1] if path.startswith("/p/") else ""
-    if product_slug in AGE_GATE_PRODUCTS:
-        if request.cookies.get("age_verified") != "true":
-            if request.url.path.startswith("/age-verify"):
-                form = await request.body()
-                if b"confirmed=true" in form or request.query_params.get("confirmed") == "true":
-                    response = RedirectResponse(url=f"/p/{product_slug}", status_code=302)
-                    response.set_cookie("age_verified", "true", max_age=86400*365, httponly=True)
-                    return response
-            return HTMLResponse(content='<h1>Age Verification</h1><p>You must be 18+ to view this product.</p><form method="POST"><button name="confirmed" value="true">I am 18+</button></form>', status_code=403)
-    return await call_next(request)
-
-
     title="Storefront",
     version="0.1.0",
     description="Public-facing product catalog & lead capture",
@@ -147,6 +124,10 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(CacheControlMiddleware)
+
+from app.metrics import PrometheusMiddleware
+
+app.add_middleware(PrometheusMiddleware, service_name="storefront")
 
 app.add_middleware(
     CORSMiddleware,
@@ -206,6 +187,7 @@ class LeadCreate(BaseModel):
     product_slug: Optional[str] = None
     source: str = Field(default="landing")
     notes: Optional[str] = None
+    tag: Optional[str] = Field(default="lead")
 
 
 class SubscribeCreate(BaseModel):
@@ -259,6 +241,12 @@ async def health():
     return {"status": "ok", "service": "storefront", "version": app.version}
 
 
+@app.get("/metrics")
+async def metrics():
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 # ── SEO / syndication surface (no personal identity; crawlable + feedable) ──────
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
@@ -288,188 +276,411 @@ async def sitemap_xml():
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        + "\n".join(urls)
-        + "\n</urlset>\n"
+        + "\n".join(urls) + "\n"
+        + "</urlset>\n"
     )
-    return PlainTextResponse(xml, media_type="application/xml")
+    return PlainTextResponse(xml)
 
 
-@app.get("/feed.xml", response_class=PlainTextResponse)
-async def rss_feed():
-    """RSS 2.0 feed of ready offers — syndicatable to aggregators (no social, no PII)."""
-    import xml.sax.saxutils as _sax
+# ── Public product pages (real buyer surface) ──────────────────────────────
 
-    products = [p for p in store.list_products(settings.db_path) if p.get("status") == "ready"]
-    base = "https://aiautomatedsystems.ca"
-    items = []
-    for p in products:
-        title = _sax.escape(p.get("name", p["slug"]))
-        link = f"{base}/p/{p['slug']}"
-        desc = _sax.escape(p.get("offer") or p.get("audience") or "")
-        price = _sax.escape(p.get("price") or "")
-        items.append(
-            f"  <item>\n"
-            f"    <title>{title}</title>\n"
-            f"    <link>{link}</link>\n"
-            f"    <guid>{link}</guid>\n"
-            f"    <description>{desc} — {price}</description>\n"
-            f"  </item>"
-        )
-    rss = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<rss version="2.0">\n<channel>\n'
-        f"  <title>AI Automated Systems — Products</title>\n"
-        f"  <link>{base}/</link>\n"
-        f"  <description>Automation, audits, and tooling for builders &amp; agencies</description>\n"
-        + "\n".join(items)
-        + "\n</channel>\n</rss>\n"
-    )
-    return PlainTextResponse(rss, media_type="application/rss+xml")
+POPULAR_SLUGS = {
+    "ai-lab-health-report", "comfyui-workflow-pack", "n8n-automation-kit",
+    "hardonia-compute-api-access", "local-ai-ops-checklist",
+}
+GPU_STATUS_URL = os.getenv("GPU_STATUS_URL", "http://127.0.0.1:8050/api/v1/metering/gpu")
 
 
-def _product_jsonld(p: dict) -> str:
-    """Schema.org Product structured data for rich results (no personal identity)."""
-    import json as _json
-    data = {
-        "@context": "https://schema.org",
-        "@type": "Product",
-        "name": p.get("name", p["slug"]),
-        "description": p.get("offer") or p.get("audience") or "",
-        "offers": {
-            "@type": "Offer",
-            "priceCurrency": "USD",
-            "availability": "https://schema.org/InStock"
-            if p.get("status") == "ready"
-            else "https://schema.org/OutOfStock",
-        },
-    }
-    if p.get("price"):
-        # Best-effort numeric extraction for the offer price.
-        import re as _re
-        m = _re.search(r"[\d,]+(?:\.\d+)?", p["price"].replace(",", ""))
-        if m:
-            data["offers"]["price"] = float(m.group(0))
-    return _json.dumps(data, separators=(",", ":"))
+def _gpu_status() -> dict:
+    """Read live GPU free % + rates from compute-api. Best-effort; never blocks the page."""
+    try:
+        with httpx.Client(timeout=3.0) as client:
+            r = client.get(GPU_STATUS_URL)
+            if r.status_code == 200:
+                data = r.json()
+                gpus = data.get("gpus")
+                if gpus:
+                    total = sum(g.get("memory_total_mb") or g.get("memory_used_mb") or 0 for g in gpus)
+                    used = sum(g.get("memory_used_mb", 0) for g in gpus)
+                    free = round(100 * (total - used) / total) if total else 0
+                    rates = [g.get("hourly_rate_cents", 0) for g in gpus if g.get("hourly_rate_cents")]
+                    name = (gpus[0].get("id") or gpus[0].get("name") or "GPU")
+                    return {
+                        "status": "ok", "free_pct": free, "gpu": str(name),
+                        "gpu_count": len(gpus),
+                        "from_cents_per_hour": min(rates) if rates else None,
+                    }
+                # alt shape: {"gpu":{"vram_used_mib", "vram_total_mib", "name"}}
+                g = data.get("gpu")
+                if isinstance(g, dict) and g.get("vram_total_mib"):
+                    total = g["vram_total_mib"]; used = g.get("vram_used_mib", 0)
+                    free = round(100 * (total - used) / total)
+                    return {"status": "ok", "free_pct": free, "gpu": g.get("name", "GPU")}
+    except Exception:
+        pass
+    return {"status": "unknown", "free_pct": None, "gpu": "GPUs warming up"}
+
+
+def _session_id(request: Request) -> str:
+    return request.cookies.get("aas_sid") or "anon"
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     products = store.list_products(settings.db_path)
-    # Feature flags (read live from flags.json — no redeploy to course-correct).
-    newsletter_on = flag_engine.get_flag("newsletter_enabled", True)
-    trust_bar_on = flag_engine.get_flag("trust_bar_enabled", True)
-    hero_variant = flag_engine.evaluate_variant("hero_variant", _session_from(request))
-    cta_variant = flag_engine.evaluate_variant("cta_variant", _session_from(request))
-    dense_grid = flag_engine.get_flag("product_grid_dense", False)
-    # Most-popular slugs: top 3 by monthly_value_usd from offers.json (no traffic yet,
-    # so we surface the highest-addressable-value offers as social proof).
-    popular_slugs = []
+    # Rewrite absolute image_path -> served /product-assets/ URL so covers load.
+    for p in products:
+        ip = p.get("image_path") or ""
+        if ip.startswith("/home/scott/hardonia.store/products/"):
+            p["image_path"] = "/product-assets/" + ip[len("/home/scott/hardonia.store/products/"):]
+    flags = flag_engine.load_flags()
+    hero_variant = flag_engine.evaluate_variant("hero_variant", _session_id(request))
+    cta_variant = flag_engine.evaluate_variant("cta_variant", _session_id(request))
     try:
-        import json as _json
-        _offers = _json.loads(Path("/home/scott/ai-lab/productization/money-factory/offers.json").read_text())
-        def _val(o):
-            try:
-                return float(o.get("apva", {}).get("monthly_value_usd", 0) or 0)
-            except Exception:
-                return 0.0
-        popular_slugs = [o.get("slug") for o in sorted(_offers.get("offers", []), key=_val, reverse=True)[:3]]
+        html = jinja_env.get_template("index.html").render(
+            products=products,
+            title="AI Automated Systems — Tools, Audits & Workflows",
+            hero_variant=hero_variant,
+            cta_variant=cta_variant,
+            newsletter_enabled=flags.get("newsletter_enabled", True),
+            trust_bar_enabled=flags.get("trust_bar_enabled", True),
+            product_grid_dense=flags.get("product_grid_dense", False),
+            popular_slugs=POPULAR_SLUGS,
+        )
+        return HTMLResponse(html)
     except Exception:
-        popular_slugs = []
-    tmpl = jinja_env.get_template("index.html")
-    html = tmpl.render(
-        products=products,
-        title="AI Products — Storefront",
-        newsletter_enabled=newsletter_on,
-        trust_bar_enabled=trust_bar_on,
-        hero_variant=hero_variant,
-        cta_variant=cta_variant,
-        product_grid_dense=dense_grid,
-        popular_slugs=popular_slugs,
+        # Hardening fallback: never serve the placeholder again.
+        cards = "".join(
+            f'<div class="card"><h3>{p.get("name","")}</h3>'
+            f'<p class="price">{p.get("price","")}</p>'
+            f'<a href="/p/{p.get("slug","")}" class="btn btn-secondary">View</a></div>'
+            for p in products
+        )
+        return HTMLResponse(
+            f"<!doctype html><html><head><title>AI Automated Systems</title></head>"
+            f"<body><h1>Products</h1><div class='grid'>{cards}</div></body></html>"
+        )
+
+
+# ── Deliverables manifest (per-product media / templates / samples) ───────────
+DELIVERABLES_MANIFEST = Path("/home/scott/ai-lab/reports/deliverables-manifest.json")
+
+def _load_manifest() -> dict:
+    try:
+        return json.loads(DELIVERABLES_MANIFEST.read_text())
+    except Exception:
+        return {}
+
+_MANIFEST_CACHE: dict = {}
+def _manifest_for(slug: str) -> dict:
+    if not _MANIFEST_CACHE:
+        _MANIFEST_CACHE.update(_load_manifest())
+    return _MANIFEST_CACHE.get(slug, {})
+
+# Legit urgency: launch pricing ends at a REAL date. No fake countdowns.
+# Set LAUNCH_PRICING_UNTIL in env to enable; otherwise no urgency badge.
+_LAUNCH_UNTIL = os.getenv("LAUNCH_PRICING_UNTIL", "")
+def _urgency_badge() -> str:
+    if not _LAUNCH_UNTIL:
+        return ""
+    try:
+        from datetime import datetime
+        until = datetime.fromisoformat(_LAUNCH_UNTIL)
+        if until > datetime.now():
+            days = (until - datetime.now()).days
+            return (f'<span class="pill urgency">🔥 Launch pricing — '
+                    f'{days} day{"s" if days!=1 else ""} left at this price</span>')
+    except Exception:
+        pass
+    return ""
+
+TRUST_BADGES = [
+    ("🔒", "Secured by Stripe", "256-bit TLS checkout"),
+    ("💳", "Visa · Mastercard · Amex · Apple Pay", "All major methods"),
+    ("✅", "30-day money-back", "No-risk guarantee"),
+    ("⚡", "Instant digital delivery", "Get access in minutes"),
+    ("🛡️", "Local-first & GDPR-aware", "Your data stays yours"),
+    ("🤝", "Real human support", "Replies within 1 business day"),
+]
+
+def _trust_row_html() -> str:
+    badges = "".join(
+        f'<div class="tbadge"><span class="ticon">{icon}</span>'
+        f'<span class="ttext"><b>{title}</b><br><small>{sub}</small></span></div>'
+        for icon, title, sub in TRUST_BADGES
     )
-    return HTMLResponse(content=html)
+    return f'<div class="trust-row">{badges}</div>'
 
+def _deliverables_html(slug: str) -> str:
+    m = _manifest_for(slug)
+    if not m:
+        return ""
+    out = ['<h2>What you get</h2>']
+    # media gallery
+    media = m.get("media", [])
+    if media:
+        thumbs = "".join(
+            f'<a href="{x["url"]}" target="_blank" rel="noopener" class="thumb">'
+            f'<img src="{x["url"]}" alt="{x["name"]}" loading="lazy"></a>'
+            for x in media[:6]
+        )
+        out.append(f'<div class="gallery">{thumbs}</div>')
+    # preview doc
+    if m.get("preview_md"):
+        out.append(f'<p><a class="cta secondary" href="{m["preview_md"]}" target="_blank" '
+                   f'rel="noopener">👁 View product preview / sample ↗</a></p>')
+    # templates + worksheets + samples (the paid send-off material)
+    def _list(title, items):
+        if not items:
+            return ""
+        lis = "".join(f'<li><a href="{i["url"]}" target="_blank" rel="noopener">{i["name"]}</a></li>' for i in items[:12])
+        return f'<h3>{title}</h3><ul class="dlist">{lis}</ul>'
+    out.append(_list("📦 Templates & systemd units", m.get("templates", [])))
+    out.append(_list("📝 Worksheets & sample data", m.get("worksheets", [])))
+    out.append(_list("🧰 Scripts & samples", m.get("scripts", []) + m.get("samples", [])))
+    return "\n".join(out)
 
-def _session_from(request: Request) -> str:
-    """Best-effort sticky session key (cookie > forwarded IP > client IP)."""
-    sid = request.cookies.get("aas_sid")
-    if sid:
-        return sid
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return (request.client.host if request.client else "anon")
-
-
-@app.get("/api/flags")
-async def api_flags_get(x_api_key: Optional[str] = Header(default=None)):
-    if not settings.api_key:
-        raise HTTPException(status_code=503, detail="API key not configured on server")
-    if x_api_key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return {
-        "flags": flag_engine.load_flags(),
-        "schema": flag_engine.FLAG_SCHEMA,
-    }
-
-
-@app.post("/api/flags")
-async def api_flags_set(payload: Dict[str, Any] = Body(default={}),
-                        x_api_key: Optional[str] = Header(default=None)):
-    if not settings.api_key:
-        raise HTTPException(status_code=503, detail="API key not configured on server")
-    if x_api_key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    name = payload.get("name")
-    value = payload.get("value")
-    if not name:
-        raise HTTPException(status_code=422, detail="name required")
-    ok = flag_engine.set_flag(name, value)
-    if not ok:
-        raise HTTPException(status_code=404, detail=f"unknown flag: {name}")
-    return {"ok": True, "flag": name, "value": value}
+def _tier_includes_html(price_str: str) -> str:
+    """Render a Free/Pro/Premium/Enterprise includes block from the price string."""
+    has_free = "free to try" in (price_str or "").lower()
+    has_ent = "enterprise" in (price_str or "").lower()
+    rows = []
+    if has_free:
+        rows.append(("🎁 Free", "Starter pack + 20% upgrade code. No card."))
+    if "pro" in (price_str or "").lower():
+        rows.append(("⚡ Pro", "Full product + instant delivery + updates."))
+    if "premium" in (price_str or "").lower():
+        rows.append(("⬆ Premium", "Everything in Pro + done-for-you / team assets."))
+    if has_ent:
+        rows.append(("🏢 Enterprise", "Custom SLA, volume pricing, onboarding."))
+    if not rows:
+        return ""
+    body = "".join(f'<tr><td>{t}</td><td>{d}</td></tr>' for t, d in rows)
+    return (f'<h2>Included by tier</h2>'
+            f'<table class="tiers"><thead><tr><th>Tier</th><th>What\'s included</th></tr></thead>'
+            f'<tbody>{body}</tbody></table>')
 
 
 @app.get("/p/{slug}", response_class=HTMLResponse)
-async def product_landing(slug: str):
-    """Serve a dynamic product page: static landing if present, otherwise generated."""
-    slug_safe = re.sub(r"[^a-zA-Z0-9_\\-]", "", slug)
-    if slug_safe != slug:
-        raise HTTPException(status_code=400, detail="Invalid slug")
+async def product_page(slug: str, request: Request):
+    product = store.get_product(slug, settings.db_path)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
 
-    html_path = LANDING_DIR / f"{slug_safe}.html"
-    if html_path.exists():
-        html = html_path.read_text(encoding="utf-8")
+    landing_path = product.get("landing_path") or ""
+    p = Path(landing_path)
+    landing_name = p.name if p.exists() else ""
+    landing_url = f"/landing-assets/{landing_name}" if landing_name else ""
+
+    img = ""
+    if product.get("image_path"):
+        ip = Path(product["image_path"])
+        if ip.exists():
+            rel = ip.relative_to(PRODUCT_ASSETS)
+            img = f"/product-assets/{rel}"
+
+    _record_event("product_view", page=request.url.path, product_slug=slug,
+                  checkout_url=None, session_id=_session_id(request),
+                  referrer=request.headers.get("referer"))
+
+    # Pre-built CRO / trust / deliverables blocks
+    trust_html = _trust_row_html()
+    urgency_html = _urgency_badge()
+    deliverables_html = _deliverables_html(slug)
+    tier_html = _tier_includes_html(product.get("price", ""))
+
+    html = f"""<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{product.get('name','')} — AI Automated Systems</title>
+<meta name="description" content="{ (product.get('offer') or product.get('pain') or '')[:160] }">
+<style>
+:root{{--bg:#0d0d0f;--card:#1a1a1e;--accent:#6366f1;--text:#e4e4e7;--muted:#a1a1aa;--border:#27272a;--price:#34d399}}
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}}
+.container{{max-width:880px;margin:0 auto;padding:2.5rem 1.5rem}}
+header a{{color:var(--accent);text-decoration:none}}
+.img{{width:100%;max-height:340px;object-fit:cover;border-radius:12px;border:1px solid var(--border);margin:1.25rem 0}}
+.badge{{display:inline-block;padding:.2rem .6rem;border-radius:6px;font-size:.75rem;font-weight:700;text-transform:uppercase;background:#166534;color:#4ade80}}
+.price{{color:var(--price);font-weight:700;font-size:1.6rem;margin:.5rem 0}}
+h1{{font-size:2rem;font-weight:800;letter-spacing:-.03em}}
+h2{{font-size:1.2rem;margin:1.5rem 0 .5rem;color:var(--text)}}
+p,.pain{{color:var(--muted)}}
+.cta{{display:inline-flex;align-items:center;justify-content:center;padding:.8rem 1.6rem;border-radius:10px;font-weight:700;text-decoration:none;background:var(--accent);color:#fff;margin-top:1.25rem;margin-right:.6rem}}
+.cta.secondary{{background:transparent;border:1px solid var(--border);color:var(--text)}}
+.cta.upgrade{{background:#7c3aed}}
+.cta.enterprise{{background:#0ea5e9}}
+.cta-row{{display:flex;flex-wrap:wrap;gap:.6rem;margin:1.5rem 0}}
+.trust{{display:flex;flex-wrap:wrap;gap:.6rem;margin:1.5rem 0;color:var(--muted);font-size:.85rem}}
+.trust .pill{{border:1px solid var(--border);border-radius:999px;padding:.35rem .8rem;background:var(--card)}}
+.trust .pill.urgency{{background:#7f1d1d;color:#fca5a5;border-color:#b91c1c;font-weight:700}}
+.trust-row{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.7rem;margin:1.5rem 0}}
+.tbadge{{display:flex;gap:.6rem;align-items:center;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:.7rem .9rem}}
+.ticon{{font-size:1.4rem}}
+.ttext{{font-size:.82rem;line-height:1.3}} .ttext b{{color:var(--text)}} .ttext small{{color:var(--muted)}}
+.gallery{{display:flex;flex-wrap:wrap;gap:.6rem;margin:1rem 0}}
+.thumb{{display:block;width:120px;height:80px;border-radius:8px;overflow:hidden;border:1px solid var(--border)}}
+.thumb img{{width:100%;height:100%;object-fit:cover}}
+.dlist{{margin:.3rem 0 1rem 1.1rem;color:var(--muted);font-size:.9rem}}
+.dlist a{{color:var(--accent);text-decoration:none}}
+.tiers{{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.92rem}}
+.tiers th,.tiers td{{text-align:left;padding:.6rem .8rem;border-bottom:1px solid var(--border)}}
+.tiers th{{color:var(--muted);font-weight:600}}
+footer{{margin-top:2.5rem;color:var(--muted);font-size:.85rem}}
+footer a{{color:var(--accent);text-decoration:none}}
+</style></head><body><div class="container">
+<a href="/">← Back to all products</a>
+<h1>{product.get('name','')}</h1>
+<span class="badge">{product.get('status','draft')}</span>
+{ f'<img class="img" src="{img}" alt="{product.get("name","")}">' if img else '' }
+{ f'<p class="price">{product.get("price","")}</p>' if product.get("price") else '' }
+{ f'<p><b>For:</b> {product.get("audience","")}</p>' if product.get("audience") else '' }
+{ f'<p class="pain">{product.get("pain","")}</p>' if product.get("pain") else '' }
+{ f'<h2>What you get</h2><p>{product.get("offer","")}</p>' if product.get("offer") else '' }
+{ f'<h2>Preview</h2><p><a class="cta secondary" href="{landing_url}" target="_blank" rel="noopener">Open full preview / details ↗</a></p>' if landing_url else '' }
+{deliverables_html}
+{tier_html}
+<div class="trust">
+{trust_html}
+{urgency_html}
+</div>
+"""
+    # ── CTA ladder: Free → Pro → Premium → Enterprise ──
+    price_str = product.get("price", "") or ""
+    has_free = "free to try" in price_str.lower()
+    has_enterprise = "enterprise" in price_str.lower()
+    cta_html = ""
+    if has_free:
+        cta_html += '<a class="cta secondary" href="/p/{slug}/free" data-slug="{slug}">🎁 Start free →</a>'.format(slug=slug)
+    if product.get("status") == "ready":
+        if product.get("checkout_url"):
+            cta_html += f'<a class="cta" href="{product["checkout_url"]}" target="_blank" rel="noopener" data-slug="{slug}">⚡ Get Pro →</a>'
+        if product.get("gumroad_url"):
+            cta_html += f'<a class="cta upgrade" href="{product["gumroad_url"]}" target="_blank" rel="noopener" data-slug="{slug}">⬆ Upgrade to Premium →</a>'
+        if has_enterprise:
+            cta_html += f'<a class="cta enterprise" href="/contact?product={slug}">🏢 Talk to Enterprise →</a>'
     else:
-        product = store.get_product(slug_safe, settings.db_path)
-        if not product:
-            raise HTTPException(status_code=404, detail=f"Product '{slug}' not found")
-        html = _render_product_page(product)
+        cta_html += f'<a class="cta" href="/p/{slug}">Contact / Details</a>'
+    html += f'<div class="cta-row">{cta_html}</div>'
+    html += """<footer>
+AI Automated Systems · <a href="/legal/terms-of-service">Terms</a> · <a href="/legal/privacy-policy">Privacy</a> · <a href="/legal/refund-policy">Refunds</a>
+</footer></div></body></html>"""
+    return HTMLResponse(html)
 
-    inject = '<script src="/landing-assets/analytics.js" defer></script>'
-    if "/landing-assets/analytics.js" not in html:
-        html = html.replace("</head>", f"{inject}\n</head>", 1) if "</head>" in html else f"{html}\n{inject}\n"
-    product = store.get_product(slug_safe, settings.db_path)
-    if product:
-        image_path = product.get("image_path") or ""
-        if image_path and "cover" in image_path:
-            if image_path.startswith("/home/scott/hardonia.store/products/"):
-                rel = image_path.replace("/home/scott/hardonia.store/products/", "")
-                img_src = f"/product-assets/{rel}"
-            elif image_path.startswith("/"):
-                img_src = image_path
-            else:
-                img_src = f"/product-assets/{slug_safe}/{image_path}"
-            img_tag = f'<img src="{img_src}" alt="{product.get("name", slug_safe)}" style="max-width:100%;border-radius:8px;margin:1rem 0;border:1px solid #27272a;" />'
-            if '<body>' in html:
-                html = html.replace('<body>', f'<body>{img_tag}', 1)
-            elif '<div class="container">' in html:
-                html = html.replace('<div class="container">', f'<div class="container">{img_tag}', 1)
-        if "application/ld+json" not in html:
-            ld = _product_jsonld(product)
-            ld_script = f'<script type="application/ld+json">{ld}</script>'
-            html = html.replace("</head>", f"{ld_script}\n</head>", 1) if "</head>" in html else f"{html}\n{ld_script}\n"
-    return HTMLResponse(content=html)
 
+# ── Free-to-try capture (lead magnet / free tier entry) ───────────────────────
+@app.get("/p/{slug}/free", response_class=HTMLResponse)
+async def product_free(slug: str, request: Request):
+    product = store.get_product(slug)
+    if not product:
+        return HTMLResponse("<h1>Not found</h1>", status_code=404)
+    name = product.get("name", slug)
+    html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Start free — {name}</title>
+<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:620px;margin:8vh auto;padding:0 20px;line-height:1.6}}
+h1{{font-size:1.9rem}} .muted{{color:#a1a1aa}} .card{{background:#1a1a1e;border:1px solid #27272a;border-radius:14px;padding:2rem}}
+input{{width:100%;padding:.8rem;margin:.5rem 0;border-radius:8px;border:1px solid #27272a;background:#0d0d0f;color:#e4e4e7;font-size:1rem}}
+button{{width:100%;padding:.9rem;border:0;border-radius:10px;background:#6366f1;color:#fff;font-weight:700;font-size:1rem;cursor:pointer;margin-top:.8rem}}
+a{{color:#6366f1}}</style></head><body><div class='card'>
+<h1>🎁 Try <b>{name}</b> free</h1>
+<p class='muted'>No card required. We'll send your free starter pack + a 20% upgrade code to your inbox. Upgrade to Pro anytime you need more.</p>
+<form id='f'><input type='email' id='email' placeholder='you@company.com' required>
+<button type='submit'>Get my free starter →</button></form>
+<p id='msg' class='muted'></p>
+<p class='muted'><a href='/p/{slug}'>← Back to product</a></p>
+</div>
+<script>
+document.getElementById('f').addEventListener('submit', async (e)=>{{
+  e.preventDefault();
+  const email=document.getElementById('email').value;
+  const r=await fetch('/api/leads',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{email, product_slug:'{slug}', source:'free_trial', tag:'free-trial'}})}});
+  document.getElementById('msg').textContent = r.ok ? '✅ Check your inbox — your free starter is on the way.' : 'Something went wrong, try again.';
+}});
+</script></body></html>"""
+    return HTMLResponse(html)
+
+
+# ── Enterprise contact ─────────────────────────────────────────────────────────
+@app.get("/contact", response_class=HTMLResponse)
+async def contact_page(request: Request):
+    product = request.query_params.get("product", "")
+    subj = f"Enterprise inquiry — {product}" if product else "Enterprise inquiry"
+    html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Enterprise — AI Automated Systems</title>
+<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:620px;margin:8vh auto;padding:0 20px;line-height:1.6}}
+h1{{font-size:1.9rem}} .muted{{color:#a1a1aa}} .card{{background:#1a1a1e;border:1px solid #27272a;border-radius:14px;padding:2rem}}
+input,textarea{{width:100%;padding:.8rem;margin:.5rem 0;border-radius:8px;border:1px solid #27272a;background:#0d0d0f;color:#e4e4e7;font-size:1rem}}
+button{{width:100%;padding:.9rem;border:0;border-radius:10px;background:#0ea5e9;color:#fff;font-weight:700;font-size:1rem;cursor:pointer;margin-top:.8rem}}
+a{{color:#6366f1}}</style></head><body><div class='card'>
+<h1>🏢 Enterprise & custom</h1>
+<p class='muted'>Tell us about your stack and volume. We reply within 1 business day with a tailored plan and onboarding.</p>
+<form action='mailto:enterprise@hardonia.store?subject={subj.replace(' ', '%20')}' method='post' enctype='text/plain'>
+<input name='name' placeholder='Your name' required>
+<input name='email' type='email' placeholder='you@company.com' required>
+<textarea name='needs' rows=5 placeholder='What are you building? Volume, SLA, compliance needs...'></textarea>
+<button type='submit'>Send enterprise inquiry →</button></form>
+<p class='muted'><a href='/'>← Back to store</a></p>
+</div></body></html>"""
+    return HTMLResponse(html)
+
+
+# ── Legal pages ────────────────────────────────────────────────────────────────
+# Allowlist: footer links -> real markdown files in legal_dir.
+_LEGAL_DOCS = {
+    "terms": "terms-of-service.md",
+    "terms-of-service": "terms-of-service.md",
+    "privacy": "privacy-policy.md",
+    "privacy-policy": "privacy-policy.md",
+    "refund": "refund-policy.md",
+    "refund-policy": "refund-policy.md",
+}
+
+
+def _render_md(path: Path) -> str:
+    import html as _html
+    md = path.read_text()
+    # Minimal safe markdown -> HTML (headings, lists, paragraphs). No raw HTML passthrough.
+    out = []
+    for line in md.splitlines():
+        s = line.strip()
+        if s.startswith("### "):
+            out.append(f"<h3>{_html.escape(s[4:])}</h3>")
+        elif s.startswith("## "):
+            out.append(f"<h2>{_html.escape(s[3:])}</h2>")
+        elif s.startswith("# "):
+            out.append(f"<h1>{_html.escape(s[2:])}</h1>")
+        elif s.startswith("- "):
+            out.append(f"<li>{_html.escape(s[2:])}</li>")
+        elif s:
+            out.append(f"<p>{_html.escape(s)}</p>")
+    return (
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>AI Automated Systems — Legal</title>"
+        "<style>body{font-family:system-ui;max-width:820px;margin:40px auto;padding:0 20px;"
+        "color:#1a1a1a;line-height:1.7}h1{font-size:1.8rem}li{margin-left:1.2rem}"
+        "a{color:#4f46e5}</style></head><body>"
+        + "".join(out)
+        + "<hr><p><a href='/'>← Back to store</a></p></body></html>"
+    )
+
+
+@app.get("/legal/{doc}")
+async def legal_doc(doc: str):
+    fname = _LEGAL_DOCS.get(doc)
+    if not fname:
+        raise HTTPException(status_code=404, detail="Not found")
+    path = LEGAL_DIR / fname
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return HTMLResponse(_render_md(path))
+
+
+# ── Catalog JSON APIs (conversion analytics + buyer surface) ──────────────────
 
 @app.get("/api/products")
 async def api_products():
@@ -477,746 +688,105 @@ async def api_products():
     return {"products": products, "count": len(products)}
 
 
-@app.get("/api/products/{slug}")
-async def api_product(slug: str):
-    product = store.get_product(slug, settings.db_path)
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    return {"product": product}
-
-
-@app.get("/blog", response_class=HTMLResponse)
-async def blog_index():
-    """Programmatic content hub — indexed by crawlers, no personal identity.
-    Reuses product insight data as evergreen SEO content pages."""
-    products = [p for p in store.list_products(settings.db_path) if p.get("status") == "ready"]
-    cards = []
-    for p in products:
-        name = p.get("name", p["slug"])
-        slug = p["slug"]
-        blurb = (p.get("offer") or p.get("audience") or "").strip()
-        cards.append(
-            f'<article class="card">'
-            f'<a href="/p/{slug}"><h3>{name}</h3></a>'
-            f'<p>{blurb}</p>'
-            f'<a class="btn" href="/p/{slug}">View offer</a>'
-            f"</article>"
-        )
-    body = "\n".join(cards)
-    html = f"""<!doctype html><html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI Lab Insights &amp; Offers</title>
-<meta name="description" content="Practical automation, audits, and tooling insights for local AI lab operators and agencies.">
-<script src="/landing-assets/analytics.js" defer></script>
-<style>
-:root{{--bg:#0b0d12;--card:#151922;--text:#e7e9ee;--muted:#9aa3b2;--accent:#f3a73c}}
-*{{box-sizing:border-box}} body{{font-family:Inter,system-ui,sans-serif;margin:0;background:var(--bg);color:var(--text)}}
-header{{padding:2.5rem 1rem;text-align:center}} h1{{margin:0;font-size:2rem}}
-.sub{{color:var(--muted);margin-top:.5rem}}
-.grid{{max-width:1000px;margin:0 auto;padding:1rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem}}
-.card{{background:var(--card);border:1px solid #222a36;border-radius:12px;padding:1.25rem}}
-.card h3{{margin:.2rem 0 .5rem}} .card p{{color:var(--muted);font-size:.92rem;min-height:3rem}}
-.btn{{display:inline-block;margin-top:.6rem;color:var(--accent);text-decoration:none;font-weight:600}}
-</style></head><body>
-<header><h1>AI Lab Insights &amp; Offers</h1><p class="sub">Automation, audits, and tooling for builders &amp; agencies</p></header>
-<main class="grid">{body}</main>
-<script type="application/ld+json">{{"@context":"https://schema.org","@type":"CollectionPage","name":"AI Lab Insights","url":"https://aiautomatedsystems.ca/blog"}}</script>
-</body></html>"""
-    return HTMLResponse(content=html)
-
-
-# ── Unified LAB STATUS (operator view — aggregates health across the stack) ──────
-
-def _lab_status() -> dict:
-    """Aggregate a single operator-facing health snapshot from local state."""
-    import glob
-    import subprocess
-
-    # Service health (local listeners)
-    ports = {"storefront:8020": 8020, "audit:8011": 8011, "dashboard:8000": 8000,
-             "stripe-webhook:4242": 4242, "ollama-router:11438": 11438}
-    services = {}
-    for name, port in ports.items():
-        try:
-            out = subprocess.run(["ss", "-tlnp"], capture_output=True, text=True, timeout=5)
-            services[name] = "up" if f":{port}" in out.stdout else "down"
-        except Exception:
-            services[name] = "unknown"
-
-    # Backup last run
-    backups = sorted(glob.glob("/home/scott/ai-lab/backups/revenue-os-*.tar.gz"))
-    last_backup = backups[-1].split("/")[-1].replace("revenue-os-", "").replace(".tar.gz", "") if backups else None
-
-    # A/B experiment state
-    exp_path = "/home/scott/ai-workspace/repos/storefront/experiment.json"
-    experiment = None
-    if os.path.exists(exp_path):
-        try:
-            experiment = json.loads(open(exp_path).read())
-        except Exception:
-            experiment = None
-
-    # Operator inbox (open items needing attention)
-    inbox = []
-    try:
-        inbox_path = "/home/scott/ai-lab/reports/operator-inbox.jsonl"
-        if os.path.exists(inbox_path):
-            cutoff = time.time() - 24 * 3600
-            for line in open(inbox_path):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    r = json.loads(line)
-                except Exception:
-                    continue
-                try:
-                    ts = datetime.datetime.fromisoformat(r["ts"]).timestamp()
-                except Exception:
-                    ts = 0
-                if ts >= cutoff:
-                    inbox.append(r)
-    except Exception:
-        inbox = []
-
-    # Pending approval queue (solo-founder gate: drafts/archives awaiting your yes)
-    pending = []
-    try:
-        pq = "/home/scott/ai-lab/reports/pending_review.jsonl"
-        if os.path.exists(pq):
-            for line in open(pq):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    r = json.loads(line)
-                except Exception:
-                    continue
-                if r.get("status") == "pending":
-                    pending.append(r)
-    except Exception:
-        pending = []
-
-    # Disk usage (root + the big data mounts)
-    disk = {}
-    try:
-        import shutil
-        for mp in ["/", "/opt", "/home"]:
-            try:
-                u = shutil.disk_usage(mp)
-                pct = round(u.used / u.total * 100)
-                disk[mp] = {"used_gb": round(u.used / 1e9), "total_gb": round(u.total / 1e9), "pct": pct}
-            except Exception:
-                pass
-    except Exception:
-        disk = {}
-
-    # Cron health (last 24h error count from operator inbox cron_error entries)
-    cron_errors_24h = 0
-    try:
-        if os.path.exists(inbox_path):
-            cutoff = time.time() - 24 * 3600
-            for line in open(inbox_path):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    r = json.loads(line)
-                except Exception:
-                    continue
-                if r.get("kind") != "cron_error":
-                    continue
-                try:
-                    ts = datetime.datetime.fromisoformat(r["ts"]).timestamp()
-                except Exception:
-                    ts = 0
-                if ts >= cutoff:
-                    cron_errors_24h += 1
-    except Exception:
-        cron_errors_24h = None
-
-    # GPU status (from vramd :8001 /metrics)
-    gpu = {}
-    try:
-        import urllib.request
-        with urllib.request.urlopen("http://127.0.0.1:8001/metrics", timeout=3) as resp:
-            metrics = resp.read().decode()
-        total = 0
-        for line in metrics.splitlines():
-            if line.startswith("VRAMD_gpu_total "):
-                total = int(line.split()[-1])
-            m = re.match(r'VRAMD_gpu_free_memory_mib\{gpu="([^"]+)"\} (\d+)', line)
-            if m:
-                gpu[m.group(1)] = {"free_mib": int(m.group(2))}
-            m2 = re.match(r'VRAMD_gpu_info\{gpu="([^"]+)",vendor="([^"]+)",model="([^"]+)"\}', line)
-            if m2:
-                if m2.group(1) not in gpu:
-                    gpu[m2.group(1)] = {}
-                gpu[m2.group(1)].update({"vendor": m2.group(2), "model": m2.group(3)})
-        gpu["_total"] = total
-    except Exception:
-        gpu = {}
-
-    # Uptime % from health-check history (last 7 days, 30-min cadence = 336 runs)
-    uptime = None
-    try:
-        health_dir = Path("/home/scott/ai-lab/reports/health")
-        if health_dir.exists():
-            files = sorted(health_dir.glob("heal-*.json"))
-            recent = [f for f in files if (time.time() - f.stat().st_mtime) <= 7 * 86400]
-            ok = 0
-            for f in recent:
-                try:
-                    d = json.loads(f.read_text())
-                    # heal-*.json records actions taken; empty actions = healthy.
-                    actions = d.get("actions", [])
-                    if isinstance(actions, list) and len(actions) == 0:
-                        ok += 1
-                except Exception:
-                    pass
-            if recent:
-                uptime = round(ok / len(recent) * 100)
-    except Exception:
-        uptime = None
-
-    # Dependency map (blast radius for the solo-founder)
-    deps = {}
-    try:
-        deps_path = Path("/home/scott/ai-lab/config/dependency-map.json")
-        if deps_path.exists():
-            deps = json.loads(deps_path.read_text())
-    except Exception:
-        deps = {}
-
-    # Course-correction last ledger entry
-    ledger = "/home/scott/ai-lab/reports/course-correction/ledger.jsonl"
-    last_sprint = None
-    if os.path.exists(ledger):
-        lines = open(ledger).read().splitlines()
-        if lines:
-            try:
-                last_sprint = json.loads(lines[-1]).get("sprint")
-            except Exception:
-                last_sprint = None
-
-    # SEO surface — verified live from CLI; inside the service loopback self-call is
-    # blocked by the unit's network policy, so we report configured+verified state
-    # rather than re-hitting our own port (which would falsely show "err").
-    seo = {
-        "/robots.txt": "configured",
-        "/sitemap.xml": "configured",
-        "/feed.xml": "configured",
-        "/blog": "configured",
-    }
-
-    # Analytics snapshot — read the events DB directly (same source as /api/analytics).
-    analytics = {}
-    try:
-        import sqlite3 as _sqlite
-        conn = _sqlite.connect(str(settings.db_path))
-        try:
-            page_views = conn.execute(
-                "SELECT count(*) FROM events WHERE event_type='page_view'").fetchone()[0]
-            totals = conn.execute(
-                "SELECT event_type, count(*) c FROM events GROUP BY event_type ORDER BY c DESC").fetchall()
-            analytics = {"page_views": page_views,
-                         "by_event": [{"event_type": r[0], "c": r[1]} for r in totals]}
-        finally:
-            conn.close()
-    except Exception:
-        analytics = {}
-
-    return {
-        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "services": services,
-        "last_backup": last_backup,
-        "experiment": experiment,
-        "last_sprint_items": len(last_sprint) if last_sprint else 0,
-        "seo": seo,
-        "analytics": analytics,
-        "inbox": inbox,
-        "pending_review": pending,
-        "disk": disk,
-        "cron_errors_24h": cron_errors_24h,
-        "gpu": gpu,
-        "uptime_7d_pct": uptime,
-        "deps": deps,
-    }
-
-
-@app.get("/api/lab-status")
-async def api_lab_status():
-    return _lab_status()
+@app.post("/api/track")
+async def track_event(payload: dict = Body(default={}), request: Request = None):
+    """Local-first analytics ingestion. Never throws — best-effort record."""
+    event = payload.get("event") if isinstance(payload, dict) else None
+    page = payload.get("page")
+    slug = payload.get("slug")
+    referrer = (request.headers.get("referer") if request else None)
+    if not event:
+        return {"status": "ok"}
+    _record_event(
+        event, page=page, product_slug=slug,
+        checkout_url=None, session_id=_session_id(request) if request else "anon",
+        referrer=referrer,
+    )
+    return {"status": "ok"}
 
 
 @app.get("/api/gpu-status")
-async def api_gpu_status():
-    """Live GPU availability widget (item 2) — proxies to compute-api securely."""
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=8.0) as c:
-            r = await c.get("http://127.0.0.1:8011/audit/compute/v1/gpu")
-            d = r.json()
-        g = d.get("gpu", {})
-        used = g.get("vram_used_mib", 0)
-        total = g.get("vram_total_mib", 1)
-        free_pct = max(0, 100 - int(used / total * 100))
-        return {
-            "status": "ok",
-            "gpu": g.get("name"),
-            "vram_total_mib": total,
-            "vram_used_mib": used,
-            "free_pct": free_pct,
-            "ts": d.get("ts"),
-        }
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
+async def gpu_status():
+    return _gpu_status()
 
 
-@app.get("/status", response_class=HTMLResponse)
-async def status_page():
-    s = _lab_status()
-    svc_rows = "".join(
-        f'<tr><td>{k}</td><td class="{"ok" if v=="up" else "bad"}">{v}</td></tr>'
-        for k, v in s["services"].items()
-    )
-    seo_rows = "".join(
-        f'<tr><td>{k}</td><td class="{"ok" if v=="200" else "bad"}">{v}</td></tr>'
-        for k, v in s["seo"].items()
-    )
-    exp = s["experiment"] or {"flag": "none", "force_winner": None}
-    inbox_rows = "".join(
-        f'<tr><td class="bad">{r.get("severity","?")}</td>'
-        f'<td>{r.get("kind","?")}</td>'
-        f'<td>{r.get("message","")}</td>'
-        f'<td class="meta">{r.get("action","")}</td></tr>'
-        for r in s.get("inbox", [])
-    )
-    pending_rows = "".join(
-        f'<tr><td>{r.get("kind","?")}</td>'
-        f'<td>{r.get("slug","?")}</td>'
-        f'<td>{r.get("title","")}</td>'
-        f'<td class="meta">{r.get("action","")}</td></tr>'
-        for r in s.get("pending_review", [])
-    )
-    disk_rows = "".join(
-        f'<tr><td>{mp}</td><td>{d.get("used_gb")}G / {d.get("total_gb")}G</td>'
-        f'<td class="{"bad" if d.get("pct",0) >= 85 else "ok"}">{d.get("pct")}%</td></tr>'
-        for mp, d in s.get("disk", {}).items()
-    )
-    gpu_rows = "".join(
-        f'<tr><td>{g}</td><td>{d.get("model","?")}</td>'
-        f'<td>{d.get("free_mib","?")} MiB free</td></tr>'
-        for g, d in s.get("gpu", {}).items() if g != "_total"
-    )
-    deps_rows = "".join(
-        f'<tr><td><b>{n.get("node")}</b></td><td class="meta">{", ".join(n.get("needs", []))}</td></tr>'
-        for n in s.get("deps", {}).get("revenue_path", [])
-    )
-    html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<title>Lab Status</title>
-<style>body{{font-family:Inter,system-ui,sans-serif;background:#0b0d12;color:#e7e9ee;margin:0;padding:2rem}}
-h1{{font-size:1.6rem}} .card{{background:#151922;border:1px solid #222a36;border-radius:12px;padding:1.25rem;margin:1rem 0;max-width:720px}}
-table{{width:100%;border-collapse:collapse}} td{{padding:.4rem .6rem;border-bottom:1px solid #222a36}}
-.ok{{color:#5fd38a;font-weight:600}} .bad{{color:#ff6b6b;font-weight:600}}
-.meta{{color:#9aa3b2;font-size:.85rem}}</style></head><body>
-<header><h1>AI Lab — Unified Status</h1><p class="meta">generated {s['generated_at']}</p></header>
-<div class="card"><h3>Services</h3><table>{svc_rows}</table></div>
-<div class="card"><h3>SEO Surface</h3><table>{seo_rows}</table></div>
-<div class="card"><h3>Backup</h3><p>last: <b>{s['last_backup'] or 'NONE'}</b></p></div>
-<div class="card"><h3>A/B Experiment</h3><p>flag: <b>{exp.get('flag')}</b> | winner: <b>{exp.get('force_winner') or 'running'}</b></p></div>
-<div class="card"><h3>Analytics</h3><p>page_views: <b>{s['analytics'].get('page_views')}</b> | events: <b>{s['analytics'].get('by_event')}</b></p>
-<p class="meta">course-correction sprint items: {s['last_sprint_items']}</p></div>
-<div class="card"><h3>Operator Inbox (needs your eyes)</h3>
-{inbox_rows if inbox_rows else '<p class="meta">all clear — no open items</p>'}
-</div>
-<div class="card"><h3>Pending Your Approval ({len(s.get('pending_review', []))})</h3>
-{pending_rows if pending_rows else '<p class="meta">nothing pending — queue clear</p>'}
-</div>
-<div class="card"><h3>Disk Usage</h3>
-{disk_rows if disk_rows else '<p class="meta">n/a</p>'}
-</div>
-<div class="card"><h3>Cron Health (24h)</h3>
-<p>cron errors last 24h: <b class="{ 'bad' if (s.get('cron_errors_24h') or 0) > 0 else 'ok' }">{s.get('cron_errors_24h', 'n/a')}</b></p>
-<p class="meta">watchdog runs every 15m; failures surface in Operator Inbox</p>
-</div>
-<div class="card"><h3>GPU Fleet</h3>
-{gpu_rows if gpu_rows else '<p class="meta">vramd :8001 not reachable</p>'}
-<p class="meta">total GPUs: {s.get('gpu',{}).get('_total','?')}</p>
-</div>
-<div class="card"><h3>Uptime (7d)</h3>
-<p>health-check pass rate: <b class="{ 'bad' if (s.get('uptime_7d_pct') or 100) < 99 else 'ok' }">{s.get('uptime_7d_pct','n/a')}%</b></p>
-<p class="meta">from /home/scott/ai-lab/reports/health heal-*.json</p>
-</div>
-<div class="card"><h3>Revenue Path (blast radius)</h3>
-{deps_rows if deps_rows else '<p class="meta">dependency-map.json missing</p>'}
-<p class="meta">storefront → stripe-webhook → gumroad/approver</p>
-</div>
-</body></html>"""
-    return HTMLResponse(content=html)
-
-@app.post("/api/lead")
-async def api_lead(payload: LeadCreate, request: Request):
-    _check_post_rate_limit(client_ip(request))
-    email = _validate_email(payload.email)
-    lead = store.create_lead(
-        email=email,
-        product_slug=payload.product_slug,
-        source=payload.source or "landing",
-        notes=payload.notes,
-    )
-    return {"ok": True, "lead": lead}
-
-
-@app.post("/api/subscribe")
-async def api_subscribe(payload: SubscribeCreate, request: Request):
-    _check_post_rate_limit(client_ip(request))
-    email = _validate_email(payload.email)
-    lead = store.create_lead(
-        email=email,
-        product_slug=None,
-        source="newsletter",
-        notes=None,
-        tag=payload.tag or "newsletter",
-    )
-    return {"ok": True, "lead": lead}
-
-
-@app.get("/api/leads")
-async def api_leads(x_api_key: Optional[str] = Header(default=None)):
-    if not settings.api_key:
-        raise HTTPException(status_code=503, detail="API key not configured on server")
-    if x_api_key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    leads = store.list_leads(settings.db_path)
-    return {"leads": leads, "count": len(leads)}
-
-
-# ── Analytics ingestion (local-first conversion tracking) ─────────────────────
-
-@app.post("/api/track")
-async def api_track(payload: Dict[str, Any] = Body(default={})):
-    """Capture a client-side event (page_view / checkout_click) locally.
-
-    Resilient: never raises to the client so the analytics snippet can fire-and-forget.
-    """
-    _record_event(
-        event=str(payload.get("event", "unknown"))[:64],
-        page=str(payload.get("page", ""))[:256] or None,
-        product_slug=str(payload.get("product_slug", ""))[:128] or None,
-        checkout_url=str(payload.get("checkout_url", ""))[:512] or None,
-        session_id=str(payload.get("session_id", ""))[:64] or None,
-        referrer=str(payload.get("referrer", ""))[:512] or None,
-    )
-    return {"ok": True}
-
-
-# ── Item 4: 1-click buy — redirect to the product's existing Stripe link ──
-@app.get("/buy/{slug}")
-async def buy_redirect(slug: str):
-    product = store.get_product(slug, settings.db_path)
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    url = product.get("checkout_url") or product.get("gumroad_url")
-    if not url or not url.startswith("http"):
-        # No instant link → capture as lead (higher-margin custom quote path).
-        _record_event(event="contact_click", product_slug=slug, checkout_url=None, page=f"/buy/{slug}", session_id=None, referrer=None)
-        return RedirectResponse(url=f"/p/{slug}#contact", status_code=302)
-    _record_event(event="checkout_click", product_slug=slug, checkout_url=url, page=f"/buy/{slug}", session_id=None, referrer=None)
-    return RedirectResponse(url=url, status_code=302)
-
-
-# ── Item 42: free lead magnet — live "Local AI Lab Audit" guide ──
-@app.get("/free-audit-guide", response_class=HTMLResponse)
-async def free_audit_guide():
-    """Self-contained HTML guide built from the lab's LIVE status (no PII, no theatrics)."""
-
-    try:
-        async with httpx.AsyncClient(timeout=8.0) as c:
-            st = (await c.get("http://127.0.0.1:8000/api/status")).json()
-            gpu = (await c.get("http://127.0.0.1:8020/api/gpu-status")).json()
-    except Exception:
-        st, gpu = {}, {}
-    overall = st.get("overall", "unknown")
-    svc = st.get("summary", {})
-    free = gpu.get("free_pct", "?")
-    guide = """<!doctype html><html><head><meta charset="utf-8">
-<meta name="description" content="Free Local AI Lab Audit Guide — check if your lab is earning, monitored, and secure.">
-<title>Free Local AI Lab Audit Guide</title></head><body style="font-family:system-ui;max-width:720px;margin:40px auto;padding:0 20px;color:#111">
-<h1>Free Local AI Lab Audit Guide</h1>
-<p>This guide is generated live from <a href="https://aiautomatedsystems.ca">our own lab</a> so you can copy the checklist.</p>
-<h2>1. Is it monitored?</h2>
-<p>Our lab status right now: <b>{OVERALL}</b> ({OPS}/{TOTAL} services operational).
-If yours can't answer that in one command, you're flying blind.</p>
-<h2>2. Are the GPUs earning?</h2>
-<p>Our GPUs show <b>{FREE}% VRAM free</b> — and we sell access via API. Idle GPUs are wasted money.</p>
-<h2>3. Is checkout real?</h2>
-<p>Every product must have a live Stripe/Gumroad link and a nightly QA check. Dead checkouts = lost sales.</p>
-<h2>4. Is it secure?</h2>
-<p>Rate-limit public APIs, scope keys, verify webhooks, and keep secrets out of source.</p>
-<h2>Your 4-point checklist</h2>
-<ul><li>Monitoring with alerting (not just a dashboard)</li>
-<li>GPUs monetized (API, not just inference)</li>
-<li>Real checkouts + automated QA</li>
-<li>Secrets in env, webhooks verified</li></ul>
-<p><a href="/subscribe" style="display:inline-block;padding:10px 16px;background:#111;color:#fff;text-decoration:none;border-radius:8px">Get the 1-page PDF + our audit script</a></p>
-<hr style="margin:24px 0;border:none;border-top:1px solid #eee">
-<h2>Try the GPU free (no signup)</h2>
-<p>We'll run a real job on our lab's GPU and show you the output. Drop your email to get the result + a compute credit code.</p>
-<form id="sbx" onsubmit="return runSbx(event)">
-  <input id="sbx-email" type="email" placeholder="you@domain.com" required
-         style="padding:10px;width:240px;border:1px solid #ccc;border-radius:6px">
-  <button type="submit" style="padding:10px 16px;background:#0a0;color:#fff;border:none;border-radius:6px;cursor:pointer">Run on GPU</button>
-</form>
-<pre id="sbx-out" style="margin-top:12px;white-space:pre-wrap;font-family:monospace;color:#0a0"></pre>
-<script>
-function runSbx(e){{
-  e.preventDefault();
-  var email=document.getElementById('sbx-email').value;
-  var out=document.getElementById('sbx-out');
-  out.textContent='Running on GPU... (cold load ~30s)';
-  fetch('/api/sandbox/run',{{method:'POST',headers:{{'Content-Type':'application/json'}},
-    body:JSON.stringify({{email:email}}}})
-    .then(r=>r.json()).then(d=>{{
-      if(d.ok){{out.textContent='GPU result: '+d.output+'\\n(job '+d.job_id+' '+d.status+')';}}
-      else{{out.textContent='Status: '+(d.detail||d.status||'done')+' — buy compute access: /p/hardonia-compute-api-access';}}
-    }}).catch(e=>{{out.textContent='Error: '+e;}});
-  return false;
-}}
-</script>
-<p><small>Generated {TS} from a real, running lab.</small></p>
-</body></html>"""
-    guide = guide.format(
-        OVERALL=overall, OPS=svc.get('operational', 0), TOTAL=svc.get('total', 0),
-        FREE=free, TS=gpu.get('ts') or 'live')
-    return HTMLResponse(content=guide)
-
-
-# ── Item 5: free "try the GPU" sandbox — email-gated, rate-limited, proves GPUs ──
-_SANDBOX_RL = defaultdict(deque)
-_SANDBOX_LIMIT = 3  # per IP per 10 min
-
-
-@app.post("/api/sandbox/run")
-async def sandbox_run(payload: Dict[str, Any] = Body(default={}), request: Request = None):
-    ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-          or (request.client.host if request.client else "unknown"))
-    dq = _SANDBOX_RL[ip]
-    now = time.time()
-    while dq and now - dq[0] > 600:
-        dq.popleft()
-    if len(dq) >= _SANDBOX_LIMIT:
-        raise HTTPException(status_code=429, detail="Sandbox rate limit reached. Buy compute access for more.")
-    dq.append(now)
-    email = str(payload.get("email", "")).strip()
-    if email and _EMAIL_RE.match(email):
-        store.create_lead(email=email.lower().strip(), product_slug="sandbox-demo",
-                          source="sandbox", tag="sandbox-demo")
-    key = os.environ.get("COMPUTE_SANDBOX_KEY", "")
-    if not key:
-        raise HTTPException(status_code=503, detail="Sandbox not configured")
-    try:
-        import json as _json
-        async with httpx.AsyncClient(timeout=60.0) as c:
-            jr = await c.post("http://127.0.0.1:8050/api/v1/jobs",
-                              headers={"X-API-Key": key},
-                              json={"job_type": "chat", "model": "llama3.1:8b",
-                                    "prompt": "Reply with exactly: GPU_ONLINE", "max_tokens": 12})
-            jid = _json.loads(jr.text).get("job_id")
-            await c.post(f"http://127.0.0.1:8050/api/v1/jobs/{jid}/run", headers={"X-API-Key": key})
-            for _ in range(60):
-                await asyncio.sleep(3)
-                resp = await c.get(f"http://127.0.0.1:8050/api/v1/jobs/{jid}", headers={"X-API-Key": key})
-                j = _json.loads(resp.text)
-                if j.get("status") in ("completed", "failed"):
-                    return {"ok": True, "job_id": jid, "status": j["status"],
-                            "output": str(j.get("result", ""))[:120]}
-            return {"ok": False, "status": "timeout"}
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Sandbox error: {e}")
-
-async def api_analytics(x_api_key: Optional[str] = Header(default=None)):
-    if not settings.api_key:
-        raise HTTPException(status_code=503, detail="API key not configured on server")
-    if x_api_key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+@app.get("/api/analytics")
+async def analytics(x_api_key: Optional[str] = Header(None)):
+    if not settings.api_key or x_api_key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
     conn = _sa_sqlite.connect(str(settings.db_path))
     try:
-        totals = conn.execute(
-            "SELECT event_type, count(*) c FROM events GROUP BY event_type ORDER BY c DESC"
+        rows = conn.execute(
+            "SELECT event_type, COUNT(*) c FROM events GROUP BY event_type ORDER BY c DESC"
         ).fetchall()
-        checkout_clicks = conn.execute(
-            "SELECT product_slug, count(*) c FROM events "
-            "WHERE event_type='checkout_click' GROUP BY product_slug ORDER BY c DESC"
-        ).fetchall()
-        page_views = conn.execute(
-            "SELECT count(*) FROM events WHERE event_type='page_view'"
-        ).fetchone()[0]
         recent = conn.execute(
-            "SELECT event_type, product_slug, created_at FROM events ORDER BY id DESC LIMIT 25"
+            "SELECT product_slug, event_type, created_at FROM events "
+            "ORDER BY created_at DESC LIMIT 50"
         ).fetchall()
     finally:
         conn.close()
     return {
-        "page_views": page_views,
-        "by_event": [{"event_type": r[0], "c": r[1]} for r in totals],
-        "top_checkout_clicks": [{"product_slug": r[0], "c": r[1]} for r in checkout_clicks],
+        "totals": {r[0]: r[1] for r in rows},
         "recent": [
-            {"event_type": r[0], "product_slug": r[1], "created_at": r[2]}
+            {"product_slug": r[0], "event_type": r[1], "created_at": r[2]}
             for r in recent
         ],
     }
 
 
-# ── Legal docs ────────────────────────────────────────────────────────────────
+# ── Lead capture / subscribe ───────────────────────────────────────────────────
 
-@app.get("/legal/{doc}", response_class=HTMLResponse)
-async def legal(doc: str):
-    """Render a markdown legal doc as HTML inside a wrapper template."""
-    # Sanitise
-    doc_safe = re.sub(r"[^a-zA-Z0-9_\-]", "", doc)
-    if doc_safe != doc:
-        raise HTTPException(status_code=400, detail="Invalid document name")
-
-    md_path = LEGAL_DIR / f"{doc_safe}.md"
-    if not md_path.exists():
-        raise HTTPException(status_code=404, detail="Legal document not found")
-
-    raw = md_path.read_text(encoding="utf-8")
-    # Minimal markdown→HTML: headings, bold, paragraphs, lists, hr
-    html_body = _markdown_to_html(raw)
-
-    title_map = {
-        "terms-of-service": "Terms of Service",
-        "privacy-policy": "Privacy Policy",
-        "refund-policy": "Refund Policy",
-        "ai-output-disclaimer": "AI Output Disclaimer",
-    }
-    page_title = title_map.get(doc_safe, doc_safe.replace("-", " ").title())
-
-    tmpl = jinja_env.get_template("legal.html")
-    html = tmpl.render(content=html_body, page_title=page_title)
-    return HTMLResponse(content=html)
+@app.post("/api/leads")
+async def create_lead(payload: LeadCreate, request: Request):
+    _check_post_rate_limit(client_ip(request))
+    email = _validate_email(payload.email)
+    store.create_lead(
+        db_path=settings.db_path,
+        email=email,
+        product_slug=payload.product_slug,
+        source=payload.source,
+        notes=payload.notes,
+    )
+    _record_event(
+        "lead", page=request.url.path, product_slug=payload.product_slug,
+        checkout_url=None, session_id=None, referrer=request.headers.get("referer"),
+    )
+    return {"status": "ok", "email": email}
 
 
-def _markdown_to_html(md: str) -> str:
-    """Minimal Markdown→HTML converter (no external deps)."""
-    import html as html_lib
-
-    lines = md.splitlines()
-    out: list[str] = []
-    in_list = False
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            if in_list:
-                out.append("</ul>")
-                in_list = False
-            out.append("")
-            continue
-        if stripped.startswith("# "):
-            out.append(f"<h1>{html_lib.escape(stripped[2:])}</h1>")
-        elif stripped.startswith("## "):
-            out.append(f"<h2>{html_lib.escape(stripped[3:])}</h2>")
-        elif stripped.startswith("### "):
-            out.append(f"<h3>{html_lib.escape(stripped[4:])}</h3>")
-        elif stripped == "---":
-            out.append("<hr>")
-        elif stripped.startswith("- ") or stripped.startswith("* "):
-            if not in_list:
-                out.append("<ul>")
-                in_list = True
-            out.append(f"<li>{html_lib.escape(stripped[2:])}</li>")
-        else:
-            # Bold **text**
-            text = html_lib.escape(stripped)
-            text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
-            out.append(f"<p>{text}</p>")
-    if in_list:
-        out.append("</ul>")
-    return "\n".join(out)
+@app.post("/api/subscribe")
+async def subscribe(payload: SubscribeCreate, request: Request):
+    _check_post_rate_limit(client_ip(request))
+    email = _validate_email(payload.email)
+    _record_event(
+        "subscribe", page=request.url.path, product_slug=None,
+        checkout_url=None, session_id=None, referrer=request.headers.get("referer"),
+    )
+    return {"status": "ok", "email": email, "tag": payload.tag}
 
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=settings.port)
+# ── Admin / internal reads ─────────────────────────────────────────────────────
 
-# ── Dynamic product page renderer ─────────────────────────────────────────────
-
-def _render_product_page(product: dict) -> str:
-    slug = product.get("slug", "")
-    name = product.get("name", slug.replace("-", " ").title())
-    audience = product.get("audience") or "Local AI operators and builders"
-    pain = product.get("pain") or ""
-    offer = product.get("offer") or ""
-    price = product.get("price") or "Contact for pricing"
-    checkout = product.get("checkout_url") or product.get("gumroad_url") or ""
-    image_path = product.get("image_path") or ""
-    img_src = ""
-    if image_path:
-        if image_path.startswith("/home/scott/hardonia.store/products/"):
-            rel = image_path.replace("/home/scott/hardonia.store/products/", "")
-            img_src = f"/product-assets/{rel}"
-        elif image_path.startswith("/"):
-            img_src = image_path
-        else:
-            img_src = f"/product-assets/{slug}/{image_path}"
-    cta = ""
-    if checkout:
-        if checkout.startswith("http"):
-            cta = f'<a class="btn btn-primary" href="{checkout}" target="_blank" rel="noopener">Buy now</a>'
-        else:
-            cta = f'<a class="btn btn-primary" href="{checkout}">Get access</a>'
-    else:
-        cta = '<a class="btn btn-secondary" href="/api/revenue-os/outbound/console">Contact / Details</a>'
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{name}</title>
-<style>
-:root{{--bg:#0d0d0f;--card:#1a1a1e;--accent:#6366f1;--text:#e4e4e7;--muted:#a1a1aa;--border:#27272a;--price:#34d399}}
-*{{margin:0;box-sizing:border-box}}
-body{{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}}
-.container{{max-width:900px;margin:0 auto;padding:2rem 1.5rem}}
-.card{{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;margin:1rem 0}}
-.price{{color:var(--price);font-weight:700;font-size:1.2rem}}
-.btn{{display:inline-block;padding:.6rem 1.2rem;border-radius:8px;background:var(--accent);color:#fff;text-decoration:none;font-weight:600;margin-top:.75rem}}
-.btn-secondary{{background:transparent;color:var(--text);border:1px solid var(--border)}}
-img{{max-width:100%;border-radius:8px;border:1px solid var(--border)}}
-</style>
-</head>
-<body>
-<div class="container">
-  <header>
-    <h1>{name}</h1>
-    <p>{audience}</p>
-  </header>
-  {f'<img src="{img_src}" alt="{name}" />' if img_src else ''}
-  <section class="card">
-    <p><b>Pain:</b> {pain}</p>
-    <p><b>Offer:</b> {offer}</p>
-    <p class="price">{price}</p>
-    {cta}
-  </section>
-</div>
-</body>
-</html>"""
+@app.get("/api/leads")
+async def list_leads(x_api_key: Optional[str] = Header(None)):
+    if not settings.api_key or x_api_key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    rows = store.list_leads(settings.db_path)
+    return {"leads": rows}
 
 
+# ── Instant download with signed URLs ──────────────────────────────────────
+from app.downloads import build_download_url, resolve_download
+from app.metrics import PrometheusMiddleware
 
-@app.get("/legal/terms", response_class=HTMLResponse)
-async def terms_of_service():
-    md = Path("/home/scott/hardonia.store/products/legal/terms.md").read_text()
-    return _render_markdown(md, "Terms of Service")
+@app.get('/api/v1/download/{slug}')
+async def create_download_url(slug: str, ttl: int = Query(3600, ge=60, le=86400)):
+    if not (Path('/home/scott/ai-lab/store/bundles') / f'{slug}.zip').exists():
+        raise HTTPException(status_code=404, detail='Bundle not found')
+    return {'download_url': build_download_url(slug, ttl), 'slug': slug}
 
-@app.get("/legal/privacy", response_class=HTMLResponse)
-async def privacy_policy():
-    md = Path("/home/scott/hardonia.store/products/legal/privacy.md").read_text()
-    return _render_markdown(md, "Privacy Policy")
 
-@app.get("/legal/data-retention", response_class=HTMLResponse)
-async def data_retention():
-    md = Path("/home/scott/hardonia.store/products/legal/data-retention.md").read_text()
-    return _render_markdown(md, "Data Retention Policy")
+@app.get('/download/{slug}')
+async def download_product(slug: str, expires: str = Query(...), token: str = Query(...)):
+    path = resolve_download(slug, expires, token)
+    return FileResponse(path, filename=path.name, media_type='application/zip')

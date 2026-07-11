@@ -259,7 +259,11 @@
         fetch('/api/gpu-status').then(function (r) { return r.json(); }).then(function (d) {
           if (d.status !== 'ok') return;
           document.getElementById('gpu-free').textContent = d.free_pct;
-          document.getElementById('gpu-name').textContent = d.gpu || 'GPU online';
+          var label = d.gpu || 'GPU online';
+          if (d.from_cents_per_hour) {
+            label += ' · from $' + (d.from_cents_per_hour/100).toFixed(2) + '/hr';
+          }
+          document.getElementById('gpu-name').textContent = label;
           var dot = document.getElementById('gpu-dot');
           dot.style.background = d.free_pct > 50 ? '#34d399' : '#f3a73c';
         }).catch(function () {});

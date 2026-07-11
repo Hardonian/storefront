@@ -647,7 +647,7 @@ a{{color:#6366f1}}</style></head><body><div class='card'>
 document.getElementById('f').addEventListener('submit', async (e)=>{{
   e.preventDefault();
   const email=document.getElementById('email').value;
-  const r=await fetch('/api/leads',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+  const r=await fetch('/api/lead',{{method:'POST',headers:{{'Content-Type':'application/json'}},
     body:JSON.stringify({{email, product_slug:'{slug}', source:'free_trial', tag:'free-trial'}})}});
   document.getElementById('msg').textContent = r.ok ? '✅ Check your inbox — your free starter is on the way.' : 'Something went wrong, try again.';
 }});
@@ -813,6 +813,69 @@ async def sitemap():
     body = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + \
            "".join(f"  <url><loc>{u}</loc></url>\n" for u in urls) + "</urlset>"
     return body
+
+
+@app.get("/pricing", response_class=HTMLResponse)
+async def pricing_page():
+    products = store.list_products(settings.db_path)
+    rows = []
+    for p in products:
+        if p.get("status") != "ready":
+            continue
+        price = p.get("price") or ""
+        checkout = p.get("checkout_url") or ""
+        cta = f"<a class='cta' href='{checkout}'>Buy — {price}</a>" if checkout.startswith("http") \
+            else f"<a class='cta' href='/contact?product={p.get('slug')}'>Contact</a>"
+        rows.append(f"<tr><td><a href='/p/{p.get('slug')}'>{p.get('name')}</a></td><td>{price}</td><td>{cta}</td></tr>")
+    table = "\n".join(rows)
+    html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Pricing — AI Automated Systems</title>
+<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:900px;margin:6vh auto;padding:0 20px;line-height:1.6}}
+h1{{font-size:2rem}} table{{width:100%;border-collapse:collapse;margin-top:1rem}} th,td{{text-align:left;padding:.7rem;border-bottom:1px solid #27272a}}
+.cta{{background:#0ea5e9;color:#fff;padding:.5rem .9rem;border-radius:8px;text-decoration:none;font-weight:700}}
+a{{color:#6366f1}}</style></head><body>
+<h1>💳 All products & bundles</h1>
+<p class='muted'>One-time payments. Lifetime access. Stripe-secured. Need volume or custom? <a href='/contact'>Talk to us</a>.</p>
+<table><thead><tr><th>Product</th><th>Price</th><th></th></tr></thead><tbody>
+{table}
+</tbody></table>
+<p class='muted'><a href='/'>← Back to home</a></p>
+</body></html>"""
+    return html
+
+
+@app.get("/metrics/funnel", response_class=PlainTextResponse)
+async def funnel_metrics():
+    """Conversion funnel: events -> leads -> purchases, real data."""
+    import sqlite3 as _sql, json as _json
+    db = _sql.connect(settings.db_path)
+    events = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+    leads = db.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
+    purchases = db.execute("SELECT COUNT(*) FROM purchases").fetchone()[0]
+    rev = db.execute("SELECT COALESCE(SUM(amount_cents),0) FROM purchases").fetchone()[0]
+    db.close()
+    data = {"events": events, "leads": leads, "purchases": purchases,
+            "revenue_cents": rev, "ts": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    return _json.dumps(data)
+
+
+@app.post("/api/privacy/erase")
+async def privacy_erase(payload: dict = Body(default={})):
+    """GDPR/CCPA erasure request. Removes lead + contact rows for an email. Fail-soft."""
+    import sqlite3 as _sql
+    email = (payload.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        return {"ok": False, "reason": "invalid_email"}
+    try:
+        db = _sql.connect(settings.db_path)
+        cur = db.execute("DELETE FROM leads WHERE lower(email)=?", (email,))
+        n = cur.rowcount
+        db.commit(); db.close()
+        return {"ok": True, "erased_rows": n}
+    except Exception as e:
+        return {"ok": False, "reason": str(e)}
+
 
 @app.post("/api/track")
 async def track_event(payload: dict = Body(default={}), request: Request = None):

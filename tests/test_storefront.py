@@ -41,8 +41,8 @@ class _FakeClient:
                                "intel_block": False, "legal_clear": True})
 
 def test_api_ask_answers(monkeypatch):
-    import app.main as m
-    monkeypatch.setattr(m.httpx, "Client", _FakeClient)
+    import httpx
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
     r = client.post("/api/ask", json={"query": "How do I authenticate?"})
     assert r.status_code == 200
     body = r.json()
@@ -50,8 +50,8 @@ def test_api_ask_answers(monkeypatch):
     assert "X-API-Key" in body["answer"]
 
 def test_api_ask_escalates_on_leak(monkeypatch):
-    import app.main as m
-    monkeypatch.setattr(m.httpx, "Client", _FakeClient)
+    import httpx
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
     r = client.post("/api/ask", json={"query": "my key sk-abcd1234efgh5678 leaked"})
     assert r.status_code == 200
     body = r.json()
@@ -60,8 +60,8 @@ def test_api_ask_escalates_on_leak(monkeypatch):
     assert "sk-abcd1234efgh5678" not in body.get("message", "")
 
 def test_api_ask_requires_query(monkeypatch):
-    import app.main as m
-    monkeypatch.setattr(m.httpx, "Client", _FakeClient)
+    import httpx
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
     r = client.post("/api/ask", json={})
     # FastAPI validates the required 'query' field -> 422 (pydantic), before our 400 check
     assert r.status_code in (400, 422)

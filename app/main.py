@@ -688,9 +688,23 @@ footer a{{color:var(--accent);text-decoration:none}}
         cta_html += f'<a class="cta" href="/p/{slug}">Contact / Details</a>'
     html += f'<div class="cta-row">{cta_html}</div>'
     html += """<footer>
-AI Automated Systems · <a href="/legal/terms-of-service">Terms</a> · <a href="/legal/privacy-policy">Privacy</a> · <a href="/legal/refund-policy">Refunds</a>
+AI Automated Systems · <a href="/legal/terms-of-service">Terms</a> · <a href="/legal/privacy-policy">Privacy</a> · <a href="/legal/refund-policy">Refunds</a> · <a href="/legal/consent">Cookies</a>
 </footer></div>
 <script>
+// Consent banner (GDPR/PIPEDA): sets hardonia_consent cookie; analytics fire only after accept.
+(function(){
+  function setConsent(v){document.cookie='hardonia_consent='+v+';path=/;max-age=31536000;SameSite=Lax';}
+  if(!document.cookie.match(/hardonia_consent=/)){
+    var b=document.createElement('div');b.id='consent-bar';
+    b.style.cssText='position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#11111a;color:#e4e4e7;padding:.8rem 1rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap;border-top:1px solid #27272a;font:14px system-ui';
+    b.innerHTML='<span style="flex:1">We use first-party analytics to improve the store. No ad tracking. <a style="color:#6366f1" href="/legal/consent">Learn more</a></span>'+
+      '<button style="padding:.5rem .9rem;border:0;border-radius:8px;background:#6366f1;color:#fff;font-weight:700;cursor:pointer" onclick="window.__consent(\'accepted\')">Accept</button>'+
+      '<button class="skip" style="padding:.5rem .9rem;border:1px solid #333;border-radius:8px;background:transparent;color:#a1a1aa;cursor:pointer" onclick="window.__consent(\'declined\')">Decline</button>';
+    document.body.appendChild(b);
+  }
+  window.__consent=function(v){setConsent(v);var el=document.getElementById('consent-bar');if(el)el.remove();
+    if(v==='accepted'){fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event:'consent_accepted'})});}};
+})();
 // Sticky CTA mirrors the in-page CTAs for mobile/no-scroll conversion.
 (function(){{
   var row=document.querySelector('.cta-row');
@@ -798,6 +812,8 @@ _LEGAL_DOCS = {
     "privacy-policy": "privacy-policy.md",
     "refund": "refund-policy.md",
     "refund-policy": "refund-policy.md",
+    "consent": "consent.md",
+    "cookie": "consent.md",
 }
 
 
@@ -1050,17 +1066,20 @@ h1,h2{{color:#fff}} a{{color:#6366f1}} p,li{{color:#d4d4d8}}</style></head><body
 
 @app.post("/api/track")
 async def track_event(payload: dict = Body(default={}), request: Request = None):
-    """Local-first analytics ingestion. Never throws — best-effort record."""
+    """Local-first analytics ingestion. Gated by consent cookie (non-essential).
+    Essential store events are always recorded; marketing/analytics events only
+    when the visitor accepted non-essential analytics via the consent banner."""
+    consent = (request.cookies.get("hardonia_consent") if request else None)
     event = payload.get("event") if isinstance(payload, dict) else None
-    page = payload.get("page")
-    slug = payload.get("slug")
-    referrer = (request.headers.get("referer") if request else None)
+    # Only suppress non-essential analytics events when consent was explicitly declined.
+    if consent == "declined" and event not in ("purchase", "checkout_redirect", "download"):
+        return {"status": "ok", "note": "analytics_consent_declined"}
     if not event:
         return {"status": "ok"}
     _record_event(
-        event, page=page, product_slug=slug,
+        event, page=payload.get("page"), product_slug=payload.get("slug"),
         checkout_url=None, session_id=_session_id(request) if request else "anon",
-        referrer=referrer,
+        referrer=request.headers.get("referer") if request else None,
     )
     return {"status": "ok"}
 

@@ -262,6 +262,99 @@ async def metrics():
     return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
+# ── AU support bot proxy (Auth/Access Unit) ────────────────────────────────────
+# Proxies customer questions to the local AU bot intake (au-bot-server.service :8070).
+# Graceful fallback: if the bot is down, return a GitHub-issue link (never hang).
+AU_BOT_URL = os.getenv("AU_BOT_URL", "http://127.0.0.1:8070/au/ask")
+
+AU_WIDGET_JS = r"""
+(function(){
+  if (document.getElementById('au-widget')) return;
+  var s = document.createElement('style');
+  s.textContent = '.au-fab{position:fixed;bottom:18px;right:18px;z-index:9999;background:#6366f1;color:#fff;border:0;border-radius:50px;padding:12px 18px;font:600 14px system-ui;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.35)}'
+    + '.au-box{position:fixed;bottom:74px;right:18px;z-index:9999;width:340px;max-width:92vw;background:#15151a;color:#e4e4e7;border:1px solid #2a2a32;border-radius:14px;overflow:hidden;font:14px system-ui}'
+    + '.au-box header{background:#1f1f27;padding:10px 14px;font-weight:700;display:flex;justify-content:space-between}'
+    + '.au-box .log{padding:12px;max-height:260px;overflow:auto;min-height:80px}'
+    + '.au-box .me{text-align:right;margin:6px 0}.au-box .me span{background:#6366f1;color:#fff;padding:7px 11px;border-radius:12px;display:inline-block;text-align:left}'
+    + '.au-box .bot{margin:6px 0}.au-box .bot span{background:#23232b;padding:7px 11px;border-radius:12px;display:inline-block;white-space:pre-wrap}'
+    + '.au-box input{width:100%;border:0;border-top:1px solid #2a2a32;background:#15151a;color:#e4e4e7;padding:11px 14px;box-sizing:border-box;outline:none}';
+  document.head.appendChild(s);
+  var fab = document.createElement('button'); fab.className='au-fab'; fab.id='au-widget'; fab.textContent='💬 Support';
+  var box = document.createElement('div'); box.className='au-box'; box.style.display='none';
+  box.innerHTML = '<header>Hardonia Support <span style="cursor:pointer" id="au-x">✕</span></header><div class="log" id="au-log"></div><input id="au-in" placeholder="Ask about your key, billing, access…">';
+  document.body.appendChild(fab); document.body.appendChild(box);
+  fab.onclick=function(){box.style.display=box.style.display==='none'?'block':'none';};
+  document.getElementById('au-x').onclick=function(){box.style.display='none';};
+  var inp=document.getElementById('au-in'), log=document.getElementById('au-log');
+  function add(who,text){var d=document.createElement('div');d.className=who;var s=document.createElement('span');s.textContent=text;d.appendChild(s);log.appendChild(d);log.scrollTop=log.scrollHeight;}
+  add('bot','👋 I\\'m AU, Hardonia\\'s auth & access assistant. Ask about API keys, 403/429 errors, credits, or access.');
+  inp.addEventListener('keydown',function(e){
+    if(e.key!=='Enter'||!inp.value.trim())return;
+    var q=inp.value.trim();inp.value='';add('me',q);
+    fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})})
+      .then(function(r){return r.json();}).then(function(d){
+        if(d.escalated){add('bot', d.message||'Escalated to a human — we\\'ll reply within 1 business day.');}
+        else if(d.answer){add('bot', d.answer.replace(/^— AU.*/m,'').trim());}
+        else {add('bot','Something went wrong — please open a GitHub issue.');}
+      }).catch(function(){add('bot','Support is briefly unavailable. Open a GitHub issue and we\\'ll reply within 1 business day.');});
+  });
+})();
+"""
+
+
+class AskRequest(BaseModel):
+    query: str = Field(..., description="Customer question for the AU support bot")
+    history: Optional[list[str]] = None
+
+
+@app.post("/api/ask")
+async def api_ask(req: AskRequest):
+    if not req.query or not req.query.strip():
+        raise HTTPException(status_code=400, detail="query required")
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            r = client.post(AU_BOT_URL, json={"query": req.query, "history": req.history or []})
+        if r.status_code == 200:
+            data = r.json()
+            if "escalation" in data:
+                # bot escalated (guardrail / low confidence) — surface the GitHub issue link
+                return JSONResponse({
+                    "answer": None,
+                    "escalated": True,
+                    "issue": data.get("issue"),
+                    "message": "This needs a human; we've opened a support ticket. We'll reply within 1 business day.",
+                })
+            return JSONResponse({"answer": data.get("answer"), "escalated": False})
+    except Exception:
+        pass
+    # Bot unreachable → graceful fallback (do not 500 the customer)
+    return JSONResponse({
+        "answer": None,
+        "escalated": True,
+        "issue": None,
+        "message": "Support is briefly unavailable. Please open an issue at "
+                   "https://github.com/Hardonian/hardonia-compute-api/issues and we'll reply within 1 business day.",
+    })
+
+
+@app.get("/api/ask/health")
+async def api_ask_health():
+    try:
+        with httpx.Client(timeout=3.0) as client:
+            r = client.get("http://127.0.0.1:8070/au/health")
+            if r.status_code == 200:
+                return {"au_bot": "up", **r.json()}
+    except Exception:
+        pass
+    return {"au_bot": "down"}
+
+
+# ── AU support widget (served JS; injected before </body> on pages) ────────────
+@app.get("/support-widget.js", response_class=PlainTextResponse)
+async def support_widget_js():
+    return PlainTextResponse(AU_WIDGET_JS, media_type="application/javascript")
+
+
 # ── SEO / syndication surface (no personal identity; crawlable + feedable) ──────
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
@@ -689,7 +782,9 @@ document.getElementById('contact-form').addEventListener('submit', async functio
 }});
 </script>
 <p class='muted'><a href='/'>← Back to store</a></p>
-</div></body></html>"""
+</div>
+<script src="/support-widget.js" defer></script>
+</body></html>"""
     return HTMLResponse(html)
 
 

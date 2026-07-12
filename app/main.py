@@ -308,9 +308,10 @@ class AskRequest(BaseModel):
 
 
 @app.post("/api/ask")
-async def api_ask(req: AskRequest):
+async def api_ask(req: AskRequest, request: Request):
     if not req.query or not req.query.strip():
         raise HTTPException(status_code=400, detail="query required")
+    _check_post_rate_limit(client_ip(request))
     try:
         with httpx.Client(timeout=8.0) as client:
             r = client.post(AU_BOT_URL, json={"query": req.query, "history": req.history or []})

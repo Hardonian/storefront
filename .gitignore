@@ -26,3 +26,12 @@ target/
 .vscode/
 .coverage
 htmlcov/
+
+# Python / venv / secrets (never commit)
+.venv/
+.env
+.env.*
+__pycache__/
+*.pyc
+uv.lock
+*.egg-info/

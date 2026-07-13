@@ -16,8 +16,9 @@ from collections import defaultdict, deque
 from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException, Depends, Header, Body, Query
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, FileResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, FileResponse, RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, EmailStr, Field
@@ -117,13 +118,26 @@ from starlette.middleware.base import BaseHTTPMiddleware
 class CacheControlMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith('/product-assets/'):
+        path = request.url.path
+        # Long-cache immutable static assets
+        if path.startswith('/product-assets/'):
             response.headers['Cache-Control'] = 'public, max-age=3600'
-        elif request.url.path.startswith('/landing-assets/'):
+        elif path.startswith('/landing-assets/'):
             response.headers['Cache-Control'] = 'public, max-age=86400'
+        # Crawlable/seo surfaces: cache briefly so re-crawls are cheap
+        elif path in ('/sitemap.xml', '/blog/rss.xml', '/robots.txt'):
+            response.headers['Cache-Control'] = 'public, max-age=3600'
+            if path != '/robots.txt':
+                response.headers['X-Robots-Tag'] = 'index, follow'
+        # HTML pages: cache short, allow revalidate (content changes with catalog)
+        elif (path.endswith('.html') or path in ('/', '/blog')
+              or path.startswith('/p/') or path.startswith('/shop/')):
+            response.headers['Cache-Control'] = 'public, max-age=300, must-revalidate'
         return response
 
 app.add_middleware(CacheControlMiddleware)
+# Compress HTML/JSON/CSS/JS responses (saves bandwidth, faster TTFB)
+app.add_middleware(GZipMiddleware, minimum_size=512, compresslevel=6)
 
 from app.metrics import PrometheusMiddleware
 
@@ -148,8 +162,25 @@ async def security_headers(request: Request, call_next):
         "Content-Security-Policy",
         "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'",
     )
+    # Report-Only CSP: collects violations (e.g. inline style/script) without
+    # breaking the page, so we can tighten the enforced CSP later (drop unsafe-inline).
+    resp.headers.setdefault(
+        "Content-Security-Policy-Report-Only",
+        "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
+        "report-uri /csp-report",
+    )
     resp.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
     return resp
+
+
+@app.post("/csp-report")
+async def csp_report(request: Request):
+    # Consume CSP violation reports (sent by browsers under Report-Only). No-op store.
+    try:
+        await request.body()
+    except Exception:
+        pass
+    return Response(status_code=204)
 
 # ── Rate limiting (in-memory, 20 req/min/IP on POST endpoints) ────────────────
 

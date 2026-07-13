@@ -32,4 +32,26 @@
       track("checkout_click", { checkout_url: a.href });
     }
   });
+
+  // ── Core Web Vitals RUM (#68): send LCP/CLS/INP/FCP to /api/track ──
+  function sendVital(name, value) {
+    try {
+      navigator.sendBeacon("/api/track", new Blob([JSON.stringify({
+        event: "web_vitals", metric: name, value: Math.round(value),
+        page: location.pathname, session_id: (sessionStorage.getItem("lab_sid") || "na")
+      })], { type: "application/json" }));
+    } catch (e) {}
+  }
+  if ("PerformanceObserver" in window) {
+    try {
+      new PerformanceObserver(function (l) { var e = l.getEntries(); if (e.length) sendVital("LCP", e[e.length-1].startTime); })
+        .observe({ type: "largest-contentful-paint", buffered: true });
+      new PerformanceObserver(function (l) { var e = l.getEntries(); if (e.length) sendVital("CLS", e[e.length-1].value); })
+        .observe({ type: "layout-shift", buffered: true });
+      new PerformanceObserver(function (l) { l.getEntries().forEach(function (e) { if (e.hadRecentInput) return; sendVital("INP", e.duration || e.processingEnd - e.startTime); }); })
+        .observe({ type: "event", buffered: true });
+      new PerformanceObserver(function (l) { var e = l.getEntries(); if (e.length) sendVital("FCP", e[e.length-1].startTime); })
+        .observe({ type: "paint", buffered: true });
+    } catch (e) {}
+  }
 })();

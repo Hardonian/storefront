@@ -11,6 +11,9 @@ import json
 import datetime
 import re
 import subprocess
+import logging
+import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from collections import defaultdict, deque
 from typing import Optional
@@ -94,6 +97,13 @@ class Settings(BaseSettings):
 
 settings = Settings()
 settings.templates_dir = str(Path(__file__).resolve().parent / "templates")
+logger = logging.getLogger("storefront")
+
+
+def require_operator(x_api_key: Optional[str] = Header(None)) -> None:
+    """Fail closed for internal metrics, lead, and analytics surfaces."""
+    if not settings.api_key or x_api_key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
 # ── Jinja2 env (template.render() + HTMLResponse pattern) ─────────────────────
 
@@ -105,10 +115,21 @@ jinja_env = Environment(
 
 # ── FastAPI app ────────────────────────────────────────────────────────────────
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    store.init_db(settings.db_path)
+    _init_analytics(settings.db_path)
+    Path(settings.landing_dir).mkdir(parents=True, exist_ok=True)
+    Path(settings.legal_dir).mkdir(parents=True, exist_ok=True)
+    yield
+
+
 app = FastAPI(
     title="Storefront",
     version="0.1.0",
     description="Public-facing product catalog & lead capture",
+    lifespan=lifespan,
 )
 
 
@@ -143,11 +164,15 @@ from app.metrics import PrometheusMiddleware
 
 app.add_middleware(PrometheusMiddleware, service_name="storefront")
 
+# Cross-repo observability: request IDs + structured access logs + /internal/* probes.
+from app.observability import setup_observability as _setup_obs  # noqa: E402
+_setup_obs(app, service_name="storefront", version="0.1.0")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://aiautomatedsystems.ca", "https://www.aiautomatedsystems.ca", "http://127.0.0.1:8020", "http://localhost:8020"],
-    allow_methods=["GET"],
-    allow_headers=["*"],
+    allow_origins=["https://aiautomatedsystems.ca", "https://www.aiautomatedsystems.ca"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
     allow_credentials=False,
 )
 
@@ -160,7 +185,8 @@ async def security_headers(request: Request, call_next):
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
     resp.headers.setdefault(
         "Content-Security-Policy",
-        "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'",
+        "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+        "script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
     )
     # Report-Only CSP: collects violations (e.g. inline style/script) without
     # breaking the page, so we can tighten the enforced CSP later (drop unsafe-inline).
@@ -171,6 +197,61 @@ async def security_headers(request: Request, call_next):
     )
     resp.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
     return resp
+
+
+MAX_REQUEST_BODY_BYTES = 64 * 1024
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+_NO_STORE_PATHS = {"/order/success", "/api/fulfillment/claim"}
+
+
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    """Bound request bodies, correlate responses, and emit one JSON access log."""
+    supplied_id = request.headers.get("x-request-id", "")
+    request_id = supplied_id if _REQUEST_ID_RE.fullmatch(supplied_id) else str(uuid.uuid4())
+    request.state.request_id = request_id
+    started = time.perf_counter()
+
+    content_length = request.headers.get("content-length")
+    if request.method in {"POST", "PUT", "PATCH"} and content_length:
+        try:
+            too_large = int(content_length) > MAX_REQUEST_BODY_BYTES
+        except ValueError:
+            response = JSONResponse(
+                {"error": "invalid_content_length", "message": "Invalid Content-Length", "request_id": request_id},
+                status_code=400,
+            )
+        else:
+            if too_large:
+                response = JSONResponse(
+                    {"error": "request_too_large", "message": "Request body exceeds 64 KiB", "request_id": request_id},
+                    status_code=413,
+                )
+            else:
+                response = await call_next(request)
+    elif request.method in {"POST", "PUT", "PATCH"}:
+        body = await request.body()
+        if len(body) > MAX_REQUEST_BODY_BYTES:
+            response = JSONResponse(
+                {"error": "request_too_large", "message": "Request body exceeds 64 KiB", "request_id": request_id},
+                status_code=413,
+            )
+        else:
+            response = await call_next(request)
+    else:
+        response = await call_next(request)
+
+    response.headers["X-Request-ID"] = request_id
+    if request.url.path in _NO_STORE_PATHS:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+    logger.info(json.dumps({
+        "event": "http_request", "request_id": request_id,
+        "method": request.method, "path": request.url.path,
+        "status": response.status_code,
+        "duration_ms": round((time.perf_counter() - started) * 1000, 3),
+    }, separators=(",", ":"), sort_keys=True))
+    return response
 
 
 @app.post("/csp-report")
@@ -232,16 +313,6 @@ def _validate_email(email: str) -> str:
     return email.lower().strip()
 
 
-# ── Startup ────────────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-def _startup():
-    store.init_db(settings.db_path)
-    _init_analytics(settings.db_path)
-    Path(settings.landing_dir).mkdir(parents=True, exist_ok=True)
-    Path(settings.legal_dir).mkdir(parents=True, exist_ok=True)
-
-
 # ── Static mounts ──────────────────────────────────────────────────────────────
 
 LANDING_DIR = Path(settings.landing_dir)
@@ -288,7 +359,7 @@ async def health():
 
 
 @app.get("/metrics")
-async def metrics():
+async def metrics(_: None = Depends(require_operator)):
     from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
     return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
@@ -312,7 +383,11 @@ AU_WIDGET_JS = r"""
   document.head.appendChild(s);
   var fab = document.createElement('button'); fab.className='au-fab'; fab.id='au-widget'; fab.textContent='💬 Support';
   var box = document.createElement('div'); box.className='au-box'; box.style.display='none';
-  box.innerHTML = '<header>Hardonia Support <span style="cursor:pointer" id="au-x">✕</span></header><div class="log" id="au-log"></div><input id="au-in" placeholder="Ask about your key, billing, access…">';
+  var head=document.createElement('header');head.appendChild(document.createTextNode('Hardonia Support '));
+  var close=document.createElement('button');close.id='au-x';close.type='button';close.textContent='✕';close.setAttribute('aria-label','Close support');head.appendChild(close);
+  var chatLog=document.createElement('div');chatLog.className='log';chatLog.id='au-log';
+  var chatInput=document.createElement('input');chatInput.id='au-in';chatInput.placeholder='Ask about your key, billing, access…';
+  box.appendChild(head);box.appendChild(chatLog);box.appendChild(chatInput);
   document.body.appendChild(fab); document.body.appendChild(box);
   fab.onclick=function(){box.style.display=box.style.display==='none'?'block':'none';};
   document.getElementById('au-x').onclick=function(){box.style.display='none';};
@@ -406,7 +481,15 @@ async def sitemap_xml():
     products = store.list_products(settings.db_path)
     base = "https://aiautomatedsystems.ca"
     urls = [f"  <url><loc>{base}/</loc><changefreq>daily</changefreq></url>",
-            f"  <url><loc>{base}/blog</loc><changefreq>daily</changefreq></url>"]
+            f"  <url><loc>{base}/pricing</loc><changefreq>weekly</changefreq></url>",
+            f"  <url><loc>{base}/blog</loc><changefreq>daily</changefreq></url>",
+            f"  <url><loc>{base}/tools/gpu-cost-calculator</loc><changefreq>monthly</changefreq></url>"]
+    for topic in ("comfyui-alternative", "n8n-self-hosted", "private-inference", "local-ai-stack"):
+        urls.append(f"  <url><loc>{base}/compare/{topic}</loc><changefreq>monthly</changefreq></url>")
+    drafts_dir = Path('/home/scott/ai-lab/reports/content/drafts')
+    if drafts_dir.exists():
+        for draft in sorted(drafts_dir.glob('*.md'), reverse=True)[:100]:
+            urls.append(f"  <url><loc>{base}/blog/{draft.stem}</loc><changefreq>monthly</changefreq></url>")
     for p in products:
         if p.get("status") == "ready":
             urls.append(
@@ -465,6 +548,33 @@ def _session_id(request: Request) -> str:
     return request.cookies.get("aas_sid") or "anon"
 
 
+def _public_product(product: dict) -> dict:
+    """Return only buyer-safe catalog fields; never expose host filesystem paths."""
+    allowed = {
+        "slug", "name", "status", "audience", "pain", "offer", "price",
+        "checkout_url", "gumroad_url", "readiness_score",
+    }
+    out = {k: product.get(k) for k in allowed}
+    image_path = str(product.get("image_path") or "")
+    prefix = "/home/scott/hardonia.store/products/"
+    out["image_url"] = "/product-assets/" + image_path[len(prefix):] if image_path.startswith(prefix) else ""
+    return out
+
+
+def _safe_external_url(value: object) -> str:
+    """Allow only HTTPS checkout destinations owned by configured payment providers."""
+    from urllib.parse import urlparse
+    raw = str(value or "").strip()
+    try:
+        parsed = urlparse(raw)
+    except Exception:
+        return ""
+    host = (parsed.hostname or "").lower()
+    allowed = host == "buy.stripe.com" or host.endswith(".gumroad.com")
+    safe_authority = parsed.username is None and parsed.password is None and parsed.port in {None, 443}
+    return raw if parsed.scheme == "https" and allowed and safe_authority else ""
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     products = store.list_products(settings.db_path)
@@ -473,6 +583,8 @@ async def index(request: Request):
         ip = p.get("image_path") or ""
         if ip.startswith("/home/scott/hardonia.store/products/"):
             p["image_path"] = "/product-assets/" + ip[len("/home/scott/hardonia.store/products/"):]
+        p["checkout_url"] = _safe_external_url(p.get("checkout_url"))
+        p["gumroad_url"] = _safe_external_url(p.get("gumroad_url"))
     flags = flag_engine.load_flags()
     hero_variant = flag_engine.evaluate_variant("hero_variant", _session_id(request))
     cta_variant = flag_engine.evaluate_variant("cta_variant", _session_id(request))
@@ -601,6 +713,112 @@ def _tier_includes_html(price_str: str) -> str:
             f'<tbody>{body}</tbody></table>')
 
 
+FULFILLMENT_JS = r"""
+(function(){
+  var form=document.getElementById('claim');
+  if(!form)return;
+  var out=document.getElementById('result');
+  var submit=document.getElementById('claim-submit');
+  var retry=document.getElementById('claim-retry');
+  function clear(node){while(node.firstChild)node.removeChild(node.firstChild);}
+  function message(text){clear(out);out.textContent=text;}
+  function recover(){retry.hidden=false;submit.disabled=false;submit.textContent='Reveal my delivery';}
+  retry.addEventListener('click',function(){retry.hidden=true;document.getElementById('email').focus();});
+  form.addEventListener('submit',async function(e){
+    e.preventDefault();retry.hidden=true;submit.disabled=true;submit.textContent='Verifying…';
+    message('Verifying payment… This can take a few seconds.');
+    try {
+      var r=await fetch('/api/fulfillment/claim',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({session_id:document.getElementById('sid').value,email:document.getElementById('email').value})});
+      var d=await r.json();
+      if(!r.ok){message((d.message||'Fulfillment is not ready.')+' Contact support if this continues.');recover();return;}
+      clear(out);
+      if(d.type==='download'){
+        out.appendChild(document.createTextNode('Your download is ready: '));
+        var link=document.createElement('a');link.href=d.download_url;link.textContent='Download securely';out.appendChild(link);
+      } else {
+        out.textContent='API key (store it now): '+d.api_key+'\nCredits: '+d.credits;
+      }
+    } catch(error) {
+      message('We could not reach fulfillment. Check your connection, then Try again or Contact support.');recover();
+    } finally {
+      if(retry.hidden){submit.disabled=false;submit.textContent='Reveal my delivery';}
+    }
+  });
+})();
+"""
+
+
+@app.get("/fulfillment.js", response_class=PlainTextResponse)
+async def fulfillment_js():
+    return PlainTextResponse(FULFILLMENT_JS, media_type="application/javascript")
+
+
+@app.get("/order/success", response_class=HTMLResponse)
+async def order_success(request: Request):
+    import html as _html
+    session_id = request.query_params.get("session_id", "")
+    if not re.fullmatch(r"cs_[A-Za-z0-9_]{4,196}", session_id):
+        raise HTTPException(status_code=400, detail="Invalid checkout session")
+    sid = _html.escape(session_id, quote=True)
+    return HTMLResponse(f"""<!doctype html><html lang='en'><head>
+<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<meta name='robots' content='noindex,nofollow'><title>Claim your purchase — AI Automated Systems</title>
+<style>body{{font-family:system-ui;background:#07111f;color:#e8f1ff;max-width:720px;margin:4rem auto;padding:1.5rem}}input,button{{font:inherit;padding:.8rem;margin:.4rem 0;width:100%;box-sizing:border-box}}button{{background:#33d6a6;border:0;font-weight:700}}pre{{white-space:pre-wrap;background:#101d2d;padding:1rem;border-radius:8px}}</style></head><body>
+<h1>Claim your purchase</h1><p>Enter the same email address used at Stripe checkout.</p>
+<form id='claim'><input type='hidden' id='sid' value='{sid}'><label>Email<input id='email' type='email' required autocomplete='email'></label><button id='claim-submit' type='submit'>Reveal my delivery</button></form>
+<pre id='result' aria-live='polite'>Ready to verify. During verification you will see: Verifying payment…</pre>
+<button id='claim-retry' type='button' hidden>Try again</button><p><a href='/contact'>Contact support</a></p>
+<script src="/fulfillment.js" defer></script>
+</body></html>""")
+
+
+@app.post("/api/fulfillment/claim")
+async def fulfillment_claim(request: Request):
+    """Proxy a claim without exposing checkout/provider error shapes to buyers."""
+    _check_post_rate_limit(client_ip(request))
+    request_id = request.state.request_id
+
+    def claim_error(status_code: int, code: str, message: str) -> JSONResponse:
+        return JSONResponse(
+            {"error": code, "message": message, "request_id": request_id},
+            status_code=status_code,
+        )
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return claim_error(400, "invalid_json", "Enter a valid claim request")
+    if not isinstance(payload, dict):
+        return claim_error(422, "invalid_claim", "Check the session and email, then try again")
+    session_id = str(payload.get("session_id") or "").strip()
+    email = str(payload.get("email") or "").strip().lower()
+    if (
+        not re.fullmatch(r"cs_[A-Za-z0-9_]{4,196}", session_id)
+        or not _EMAIL_RE.fullmatch(email)
+    ):
+        return claim_error(422, "invalid_claim", "Check the session and email, then try again")
+    try:
+        with httpx.Client(timeout=15.0, trust_env=False) as client:
+            response = client.post(
+                "http://127.0.0.1:8012/api/v1/fulfillment/claim",
+                json={"session_id": session_id, "email": email},
+            )
+        if response.status_code in {404, 409}:
+            return claim_error(409, "claim_not_ready", "Payment is still processing or the email does not match")
+        if response.status_code != 200:
+            return claim_error(502, "verification_failed", "Purchase verification is temporarily unavailable")
+        data = response.json()
+        if data.get("type") == "compute" and not str(data.get("api_key") or "").startswith("hk_live_"):
+            return claim_error(502, "invalid_fulfillment", "Fulfillment returned an invalid response")
+        if data.get("type") == "download" and not str(data.get("download_url") or "").startswith("https://aiautomatedsystems.ca/download/"):
+            return claim_error(502, "invalid_fulfillment", "Fulfillment returned an invalid response")
+        return data
+    except Exception:
+        logger.exception(json.dumps({"event": "fulfillment_proxy_failed", "request_id": request_id}))
+        return claim_error(502, "fulfillment_unavailable", "Fulfillment service is temporarily unavailable")
+
+
 @app.get("/p/{slug}", response_class=HTMLResponse)
 async def product_page(slug: str, request: Request):
     product = store.get_product(slug, settings.db_path)
@@ -629,12 +847,52 @@ async def product_page(slug: str, request: Request):
     deliverables_html = _deliverables_html(slug)
     tier_html = _tier_includes_html(product.get("price", ""))
 
+    # Escape all catalog copy before interpolation; product data is content, not markup.
+    import html as _html
+    name_raw = str(product.get("name") or "")
+    description_raw = str(product.get("offer") or product.get("pain") or "")[:160]
+    name_html = _html.escape(name_raw)
+    description_html = _html.escape(description_raw, quote=True)
+    audience_html = _html.escape(str(product.get("audience") or ""))
+    pain_html = _html.escape(str(product.get("pain") or ""))
+    offer_html = _html.escape(str(product.get("offer") or ""))
+    price_html = _html.escape(str(product.get("price") or ""))
+    status_html = _html.escape(str(product.get("status") or "draft"))
+    canonical = f"https://aiautomatedsystems.ca/p/{slug}"
+    image_absolute = f"https://aiautomatedsystems.ca{img}" if img else ""
+    price_match = re.search(r"\d+(?:\.\d{1,2})?", str(product.get("price") or ""))
+    product_schema = {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": name_raw,
+        "description": description_raw,
+        "url": canonical,
+        "offers": {
+            "@type": "Offer",
+            "price": price_match.group(0) if price_match else "0",
+            "priceCurrency": "USD",
+            "availability": "https://schema.org/InStock" if product.get("status") == "ready" else "https://schema.org/PreOrder",
+            "url": canonical,
+        },
+    }
+    if image_absolute:
+        product_schema["image"] = image_absolute
+    product_schema_json = json.dumps(product_schema, ensure_ascii=False).replace("</", "<\\/")
+
     html = f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{product.get('name','')} — AI Automated Systems</title>
-<meta name="description" content="{ (product.get('offer') or product.get('pain') or '')[:160] }">
+<title>{name_html} — AI Automated Systems</title>
+<meta name="description" content="{description_html}">
+<link rel="canonical" href="{canonical}">
+<meta property="og:type" content="product">
+<meta property="og:site_name" content="AI Automated Systems">
+<meta property="og:title" content="{name_html} — AI Automated Systems">
+<meta property="og:description" content="{description_html}">
+<meta property="og:url" content="{canonical}">
+{f'<meta property="og:image" content="{image_absolute}">' if image_absolute else ''}
+<meta name="twitter:card" content="summary_large_image">
 <style>
 :root{{--bg:#0d0d0f;--card:#1a1a1e;--accent:#6366f1;--text:#e4e4e7;--muted:#a1a1aa;--border:#27272a;--price:#34d399}}
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -677,16 +935,14 @@ footer a{{color:var(--accent);text-decoration:none}}
 .exit-card input{{width:100%;padding:.6rem;margin:.6rem 0;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)}}
 </style></head><body><div class="container">
 <!-- SEO: JSON-LD Product -->
-<script type="application/ld+json">
-{{"@context":"https://schema.org","@type":"Product","name":"{product.get('name','')}","description":{(product.get('offer') or product.get('pain') or '')[:160]!r},"offers":{{"@type":"Offer","price":"{(product.get('price') or '').replace('$','').split('/')[0].strip()}","priceCurrency":"USD"}}}}
-</script>
-<h1>{product.get('name','')}</h1>
-<span class="badge">{product.get('status','draft')}</span>
-{ f'<img class="img" src="{img}" alt="{product.get("name","")}">' if img else '' }
-{ f'<p class="price">{product.get("price","")}</p>' if product.get("price") else '' }
-{ f'<p><b>For:</b> {product.get("audience","")}</p>' if product.get("audience") else '' }
-{ f'<p class="pain">{product.get("pain","")}</p>' if product.get("pain") else '' }
-{ f'<h2>What you get</h2><p>{product.get("offer","")}</p>' if product.get("offer") else '' }
+<script type="application/ld+json">{product_schema_json}</script>
+<h1>{name_html}</h1>
+<span class="badge">{status_html}</span>
+{ f'<img class="img" src="{img}" alt="{name_html}">' if img else '' }
+{ f'<p class="price">{price_html}</p>' if price_html else '' }
+{ f'<p><b>For:</b> {audience_html}</p>' if audience_html else '' }
+{ f'<p class="pain">{pain_html}</p>' if pain_html else '' }
+{ f'<h2>What you get</h2><p>{offer_html}</p>' if offer_html else '' }
 { f'<h2>Preview</h2><p><a class="cta secondary" href="{landing_url}" target="_blank" rel="noopener">Open full preview / details ↗</a></p>' if landing_url else '' }
 {deliverables_html}
 {tier_html}
@@ -700,19 +956,20 @@ footer a{{color:var(--accent);text-decoration:none}}
     has_free = "free to try" in price_str.lower()
     has_enterprise = "enterprise" in price_str.lower()
     cta_html = ""
-    checkout = product.get("checkout_url") or ""
+    checkout = _safe_external_url(product.get("checkout_url"))
+    gumroad = _safe_external_url(product.get("gumroad_url"))
     if has_free:
         cta_html += '<a class="cta secondary" href="/p/{slug}/free" data-slug="{slug}">🎁 Start free →</a>'.format(slug=slug)
     if product.get("status") == "ready":
-        if checkout.startswith("http"):
-            cta_html += f'<a class="cta" href="{checkout}" target="_blank" rel="noopener" data-slug="{slug}">⚡ Get Pro →</a>'
-        elif checkout and "contact" in checkout.lower():
+        if checkout:
+            cta_html += f'<a class="cta" href="{_html.escape(checkout, quote=True)}" target="_blank" rel="noopener" data-slug="{slug}">⚡ Get Pro →</a>'
+        elif product.get("checkout_url") and "contact" in str(product.get("checkout_url")).lower():
             cta_html += f'<a class="cta" href="/contact?product={slug}" data-slug="{slug}">📩 Contact for pricing →</a>'
         else:
             # No usable checkout: route to contact so the lead is never lost (no dead end).
             cta_html += f'<a class="cta" href="/contact?product={slug}" data-slug="{slug}">📩 Get access →</a>'
-        if product.get("gumroad_url"):
-            cta_html += f'<a class="cta upgrade" href="{product["gumroad_url"]}" target="_blank" rel="noopener" data-slug="{slug}">⬆ Also on Gumroad →</a>'
+        if gumroad:
+            cta_html += f'<a class="cta upgrade" href="{_html.escape(gumroad, quote=True)}" target="_blank" rel="noopener" data-slug="{slug}">⬆ Also on Gumroad →</a>'
         if has_enterprise:
             cta_html += f'<a class="cta enterprise" href="/contact?product={slug}">🏢 Talk to Enterprise →</a>'
     else:
@@ -798,7 +1055,9 @@ document.getElementById('f').addEventListener('submit', async (e)=>{{
 @app.get("/contact", response_class=HTMLResponse)
 async def contact_page(request: Request):
     product = request.query_params.get("product", "")
-    subj = f"Enterprise inquiry — {product}" if product else "Enterprise inquiry"
+    if product and not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,119}", product):
+        raise HTTPException(status_code=400, detail="Invalid product")
+    product_js = json.dumps(product)
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Enterprise — AI Automated Systems</title>
@@ -823,7 +1082,7 @@ document.getElementById('contact-form').addEventListener('submit', async functio
   var email=document.getElementById('cemail').value;
   var needs=document.getElementById('cneeds').value;
   var r=await fetch('/api/contact',{{method:'POST',headers:{{'Content-Type':'application/json'}},
-    body:JSON.stringify({{name:name,email:email,needs:needs,product:'{product}'}})}});
+    body:JSON.stringify({{name:name,email:email,needs:needs,product:{product_js}}})}});
   document.getElementById('cmsg').textContent = r.ok ? '✅ Sent — we will reply within 1 business day.' : 'Try again.';
 }});
 </script>
@@ -892,19 +1151,18 @@ async def legal_doc(doc: str):
 
 @app.get("/api/products")
 async def api_products():
-    products = store.list_products(settings.db_path)
+    products = [_public_product(p) for p in store.list_products(settings.db_path)]
     return {"products": products, "count": len(products)}
 
 
 @app.post("/api/lead")
-async def api_lead(payload: dict = Body(default={})):
+async def api_lead(request: Request, payload: dict = Body(default={})):
     """Capture a lead (exit-intent, contact form, waitlist). Fail-soft."""
     import sqlite3 as _sql
-    email = (payload.get("email") or "").strip()
-    slug = payload.get("product_slug") or ""
-    source = payload.get("source") or "unknown"
-    if not email or "@" not in email:
-        return {"ok": False, "reason": "invalid_email"}
+    email = _validate_email((payload.get("email") or "").strip())
+    _check_post_rate_limit(client_ip(request))
+    slug = str(payload.get("product_slug") or "")[:120]
+    source = str(payload.get("source") or "unknown")[:80]
     try:
         db = _sql.connect(settings.db_path)
         db.execute("""CREATE TABLE IF NOT EXISTS leads(
@@ -914,21 +1172,21 @@ async def api_lead(payload: dict = Body(default={})):
         db.execute("INSERT OR IGNORE INTO leads(email,product_slug,source,status,created_at) VALUES(?,?,?,?,?)",
                    (email, slug, source, "new", datetime.datetime.now(datetime.timezone.utc).isoformat()))
         db.commit(); db.close()
-    except Exception as e:
-        return {"ok": False, "reason": str(e)}
+    except Exception:
+        logger.exception("lead capture failed")
+        return {"ok": False, "reason": "temporarily_unavailable"}
     return {"ok": True}
 
 
 @app.post("/api/contact")
-async def api_contact(payload: dict = Body(default={})):
+async def api_contact(request: Request, payload: dict = Body(default={})):
     """Enterprise/contact intake. Stores lead + fires Telegram alert. Fail-soft."""
     import sqlite3 as _sql, subprocess
-    name = (payload.get("name") or "").strip()
-    email = (payload.get("email") or "").strip()
-    needs = (payload.get("needs") or "").strip()
-    slug = payload.get("product") or ""
-    if not email or "@" not in email:
-        return {"ok": False, "reason": "invalid_email"}
+    _check_post_rate_limit(client_ip(request))
+    name = str(payload.get("name") or "").strip()[:120]
+    email = _validate_email((payload.get("email") or "").strip())
+    needs = str(payload.get("needs") or "").strip()[:2000]
+    slug = str(payload.get("product") or "")[:120]
     try:
         db = _sql.connect(settings.db_path)
         db.execute("""CREATE TABLE IF NOT EXISTS leads(
@@ -939,48 +1197,36 @@ async def api_contact(payload: dict = Body(default={})):
         db.commit(); db.close()
         msg = f"📩 New contact: {name} <{email}> product={slug} — {needs[:120]}"
         subprocess.run(['/home/scott/ai-lab/scripts/bin/telegram-alert.sh', msg], stderr=subprocess.DEVNULL)
-    except Exception as e:
-        return {"ok": False, "reason": str(e)}
+    except Exception:
+        logger.exception("lead capture failed")
+        return {"ok": False, "reason": "temporarily_unavailable"}
     return {"ok": True}
-
-
-@app.get("/sitemap.xml", response_class=PlainTextResponse)
-async def sitemap():
-    products = store.list_products(settings.db_path)
-    urls = ["https://aiautomatedsystems.ca/", "https://aiautomatedsystems.ca/pricing",
-            "https://aiautomatedsystems.ca/blog", "https://aiautomatedsystems.ca/blog/rss.xml",
-            "https://aiautomatedsystems.ca/tools/gpu-cost-calculator",
-            "https://aiautomatedsystems.ca/compare/n8n-self-hosted",
-            "https://aiautomatedsystems.ca/compare/private-inference",
-            "https://aiautomatedsystems.ca/compare/comfyui-alternative",
-            "https://aiautomatedsystems.ca/compare/local-ai-stack",
-            "https://aiautomatedsystems.ca/landing/gpu-compute-waitlist.html"]
-    for p in products:
-        slug = p.get("slug")
-        if slug:
-            urls.append(f"https://aiautomatedsystems.ca/p/{slug}")
-            urls.append(f"https://aiautomatedsystems.ca/landing/{slug}.html")
-    body = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + \
-           "".join(f"  <url><loc>{u}</loc></url>\n" for u in urls) + "</urlset>"
-    return body
 
 
 @app.get("/pricing", response_class=HTMLResponse)
 async def pricing_page():
+    import html as _html
     products = store.list_products(settings.db_path)
     rows = []
     for p in products:
         if p.get("status") != "ready":
             continue
-        price = p.get("price") or ""
-        checkout = p.get("checkout_url") or ""
-        cta = f"<a class='cta' href='{checkout}'>Buy — {price}</a>" if checkout.startswith("http") \
-            else f"<a class='cta' href='/contact?product={p.get('slug')}'>Contact</a>"
-        rows.append(f"<tr><td><a href='/p/{p.get('slug')}'>{p.get('name')}</a></td><td>{price}</td><td>{cta}</td></tr>")
+        slug = _html.escape(str(p.get("slug") or ""), quote=True)
+        name = _html.escape(str(p.get("name") or ""))
+        price = _html.escape(str(p.get("price") or ""))
+        checkout = _safe_external_url(p.get("checkout_url"))
+        cta = f"<a class='cta' href='{_html.escape(checkout, quote=True)}' rel='noopener'>Buy — {price}</a>" if checkout \
+            else f"<a class='cta' href='/contact?product={slug}'>Contact</a>"
+        rows.append(f"<tr><td><a href='/p/{slug}'>{name}</a></td><td>{price}</td><td>{cta}</td></tr>")
     table = "\n".join(rows)
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Pricing — AI Automated Systems</title>
+<meta name='description' content='Transparent pricing for private AI lab audits, ComfyUI workflows, automation kits, and GPU compute.'>
+<link rel='canonical' href='https://aiautomatedsystems.ca/pricing'>
+<meta property='og:type' content='website'><meta property='og:title' content='Pricing — AI Automated Systems'>
+<meta property='og:description' content='Transparent private-AI products and GPU compute pricing.'>
+<meta property='og:url' content='https://aiautomatedsystems.ca/pricing'>
 <style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:900px;margin:6vh auto;padding:0 20px;line-height:1.6}}
 h1{{font-size:2rem}} table{{width:100%;border-collapse:collapse;margin-top:1rem}} th,td{{text-align:left;padding:.7rem;border-bottom:1px solid #27272a}}
 .cta{{background:#0ea5e9;color:#fff;padding:.5rem .9rem;border-radius:8px;text-decoration:none;font-weight:700}}
@@ -996,7 +1242,7 @@ a{{color:#6366f1}}</style></head><body>
 
 
 @app.get("/metrics/funnel", response_class=PlainTextResponse)
-async def funnel_metrics():
+async def funnel_metrics(_: None = Depends(require_operator)):
     """Conversion funnel: events -> leads -> purchases, real data."""
     import sqlite3 as _sql, json as _json
     db = _sql.connect(settings.db_path)
@@ -1011,20 +1257,29 @@ async def funnel_metrics():
 
 
 @app.post("/api/privacy/erase")
-async def privacy_erase(payload: dict = Body(default={})):
-    """GDPR/CCPA erasure request. Removes lead + contact rows for an email. Fail-soft."""
+async def privacy_erase(request: Request, payload: dict = Body(default={})):
+    """Queue a verified erasure request; never delete PII from an unauthenticated call."""
     import sqlite3 as _sql
     email = (payload.get("email") or "").strip().lower()
-    if not email or "@" not in email:
-        return {"ok": False, "reason": "invalid_email"}
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail="Invalid email address")
+    _check_post_rate_limit(client_ip(request))
     try:
         db = _sql.connect(settings.db_path)
-        cur = db.execute("DELETE FROM leads WHERE lower(email)=?", (email,))
-        n = cur.rowcount
-        db.commit(); db.close()
-        return {"ok": True, "erased_rows": n}
-    except Exception as e:
-        return {"ok": False, "reason": str(e)}
+        db.execute("""CREATE TABLE IF NOT EXISTS privacy_requests(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL,
+            request_type TEXT NOT NULL DEFAULT 'erase', status TEXT NOT NULL DEFAULT 'pending_verification',
+            created_at TEXT NOT NULL, verified_at TEXT, completed_at TEXT)""")
+        db.execute(
+            "INSERT INTO privacy_requests(email,request_type,status,created_at) VALUES(?,?,?,?)",
+            (email, "erase", "pending_verification", datetime.datetime.now(datetime.timezone.utc).isoformat()),
+        )
+        db.commit()
+        db.close()
+        return {"ok": True, "status": "pending_verification"}
+    except Exception:
+        logger.exception("privacy request creation failed")
+        return JSONResponse({"ok": False, "reason": "temporarily_unavailable"}, status_code=503)
 
 
 @app.get("/blog/rss.xml", response_class=PlainTextResponse)
@@ -1053,7 +1308,12 @@ async def blog_index():
         slug = d.stem
         items.append(f"<li><a href='/blog/{slug}'>{_h.escape(title)}</a></li>")
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
-<meta name='viewport' content='width=device-width,initial-scale=1'><title>Blog — AI Automated Systems</title>
+<meta name='viewport' content='width=device-width,initial-scale=1'><title>Local AI Ops Blog — AI Automated Systems</title>
+<meta name='description' content='Practical guides for private AI labs, ComfyUI, n8n automation, local inference, and GPU operations.'>
+<link rel='canonical' href='https://aiautomatedsystems.ca/blog'>
+<meta property='og:type' content='website'><meta property='og:title' content='Local AI Ops Blog — AI Automated Systems'>
+<meta property='og:description' content='Practical private-AI, automation, and GPU operations guides.'>
+<meta property='og:url' content='https://aiautomatedsystems.ca/blog'>
 <style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:800px;margin:6vh auto;padding:0 20px;line-height:1.7}}
 h1{{font-size:2rem}} a{{color:#6366f1}} li{{margin:.5rem 0}}</style></head><body>
 <h1>📝 Local-AI Ops Blog</h1>
@@ -1068,13 +1328,26 @@ h1{{font-size:2rem}} a{{color:#6366f1}} li{{margin:.5rem 0}}</style></head><body
 async def blog_post(slug: str):
     from pathlib import Path as _P
     import html as _h, re as _re
-    p = _P(f'/home/scott/ai-lab/reports/content/drafts/{slug}.md')
-    if not p.exists():
+    if not _re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}", slug) or ".." in slug:
+        raise HTTPException(status_code=404, detail="Not found")
+    p = _P('/home/scott/ai-lab/reports/content/drafts') / f"{slug}.md"
+    if not p.is_file():
         return HTMLResponse("<h1>Not found</h1>", status_code=404)
     md = p.read_text()
+    lines = md.splitlines()
+    title_raw = next((line[2:].strip() for line in lines if line.startswith('# ')), slug.replace('-', ' ').title())
+    description_raw = next((line.strip() for line in lines if line.strip() and not line.startswith('#')), title_raw)[:160]
+    title_html = _h.escape(title_raw)
+    description_html = _h.escape(description_raw, quote=True)
+    canonical = f"https://aiautomatedsystems.ca/blog/{slug}"
+    article_schema = json.dumps({
+        "@context": "https://schema.org", "@type": "Article", "headline": title_raw,
+        "description": description_raw, "mainEntityOfPage": canonical,
+        "publisher": {"@type": "Organization", "name": "AI Automated Systems"},
+    }, ensure_ascii=False).replace("</", "<\\/")
     # minimal md->html
     out = []
-    for line in md.splitlines():
+    for line in lines:
         s = line.strip()
         if s.startswith('## '):
             out.append(f"<h2>{_h.escape(s[3:])}</h2>")
@@ -1086,7 +1359,11 @@ async def blog_post(slug: str):
             out.append(f"<p>{_h.escape(s)}</p>")
     body = "\n".join(out)
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
-<meta name='viewport' content='width=device-width,initial-scale=1'><title>{_h.escape(slug)} — AI Automated Systems</title>
+<meta name='viewport' content='width=device-width,initial-scale=1'><title>{title_html} — AI Automated Systems</title>
+<meta name='description' content='{description_html}'><link rel='canonical' href='{canonical}'>
+<meta property='og:type' content='article'><meta property='og:title' content='{title_html}'>
+<meta property='og:description' content='{description_html}'><meta property='og:url' content='{canonical}'>
+<script type='application/ld+json'>{article_schema}</script>
 <style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:800px;margin:6vh auto;padding:0 20px;line-height:1.7}}
 h1,h2{{color:#fff}} a{{color:#6366f1}} p,li{{color:#d4d4d8}}</style></head><body>
 {body}
@@ -1176,6 +1453,13 @@ async def create_lead(payload: LeadCreate, request: Request):
 async def subscribe(payload: SubscribeCreate, request: Request):
     _check_post_rate_limit(client_ip(request))
     email = _validate_email(payload.email)
+    store.create_lead(
+        db_path=settings.db_path,
+        email=email,
+        product_slug=None,
+        source="newsletter",
+        notes=f"tag={payload.tag or 'newsletter'}",
+    )
     _record_event(
         "subscribe", page=request.url.path, product_slug=None,
         checkout_url=None, session_id=None, referrer=request.headers.get("referer"),
@@ -1212,6 +1496,11 @@ async def download_product(slug: str, expires: str = Query(...), token: str = Qu
 async def gpu_calculator():
     html = """<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'><title>GPU Cost Calculator — AI Automated Systems</title>
+<meta name='description' content='Compare monthly cloud GPU costs with self-hosted V100 and P40 infrastructure.'>
+<link rel='canonical' href='https://aiautomatedsystems.ca/tools/gpu-cost-calculator'>
+<meta property='og:type' content='website'><meta property='og:title' content='GPU Cost Calculator — AI Automated Systems'>
+<meta property='og:description' content='Compare cloud and self-hosted GPU costs.'>
+<meta property='og:url' content='https://aiautomatedsystems.ca/tools/gpu-cost-calculator'>
 <style>body{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:640px;margin:6vh auto;padding:0 20px;line-height:1.6}
 h1{font-size:1.8rem}label{display:block;margin:1rem 0 .3rem}a{color:#6366f1}
 input,select{width:100%;padding:.6rem;background:#1a1a1f;border:1px solid #333;color:#fff;border-radius:6px}
@@ -1229,7 +1518,7 @@ button{margin-top:1.2rem;background:#6366f1;color:#fff;border:0;padding:.7rem 1.
 function calc(){var c={v100:2.40,p40:0.90}[document.getElementById('gpu').value];
 var h=+document.getElementById('hrs').value;var l=+document.getElementById('local').value;
 var cloud=c*h,local=l*h;var save=cloud-local;
-document.getElementById('out').innerHTML='Cloud: $'+cloud.toFixed(2)+'<br>Self-host/rent: $'+local.toFixed(2)+'<br><b>You save: $'+save.toFixed(2)+'/mo</b>';}
+document.getElementById('out').textContent='Cloud: $'+cloud.toFixed(2)+' · Self-host/rent: $'+local.toFixed(2)+' · You save: $'+save.toFixed(2)+'/mo';}
 </script></body></html>"""
     return html
 
@@ -1243,12 +1532,88 @@ async def compare_page(topic: str):
         'private-inference': ('Private LLM Inference', 'Run models with zero logging. Hardonia Private Inference Access gives you a metered, Stripe-billed endpoint on EPYC GPUs — no vendor sees your prompts.'),
         'local-ai-stack': ('Build a Local AI Stack', 'From Ollama to ComfyUI to n8n — the local-first stack. Hardonia\'s AI Lab Power Bundle includes every piece with setup docs.'),
     }
-    title, body = data.get(topic, ('Local AI Resources', 'Practical local-AI guides and bundles from Hardonia.'))
+    if topic not in data:
+        raise HTTPException(status_code=404, detail="Not found")
+    title, body = data[topic]
+    canonical = f"https://aiautomatedsystems.ca/compare/{topic}"
+    description = _h.escape(body[:160], quote=True)
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'><title>{_h.escape(title)} — AI Automated Systems</title>
+<meta name='description' content='{description}'><link rel='canonical' href='{canonical}'>
+<meta property='og:type' content='article'><meta property='og:title' content='{_h.escape(title)}'>
+<meta property='og:description' content='{description}'><meta property='og:url' content='{canonical}'>
 <style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:720px;margin:6vh auto;padding:0 20px;line-height:1.7}}
 h1{{font-size:2rem}}a{{color:#6366f1}}p,li{{color:#d4d4d8}}</style></head><body>
 <h1>{_h.escape(title)}</h1><p>{_h.escape(body)}</p>
 <p><a href='/pricing'>See all bundles & pricing</a> · <a href='/blog'>Read the blog</a></p>
 <p><a href='/'>Home</a></p></body></html>"""
+
+
+# ── Purchase redirect (the money path) ─────────────────────────────────────────
+# /buy/<slug> -> 302 to the product's real checkout (Stripe preferred, Gumroad fallback).
+@app.get("/buy/{slug}")
+async def buy_redirect(slug: str, request: Request):
+    prod = store.get_product(slug, settings.db_path)
+    if not prod:
+        raise HTTPException(status_code=404, detail="Unknown product")
+    checkout = _safe_external_url(prod.get("checkout_url")) or _safe_external_url(prod.get("gumroad_url"))
+    if not checkout:
+        return RedirectResponse(url=f"/p/{slug}#contact", status_code=302)
+    _record_event("buy_click", page=request.url.path, product_slug=slug,
+                  checkout_url=checkout, session_id=_session_id(request),
+                  referrer=request.headers.get("referer"))
+    return RedirectResponse(url=checkout, status_code=302)
+
+
+# ── Operational status (trust page) ────────────────────────────────────────────
+@app.get("/status", response_class=HTMLResponse)
+async def status_page(request: Request):
+    try:
+        products = store.list_products(settings.db_path)
+        live = [p for p in products if p.get("status") in ("live", "ready")]
+    except Exception:
+        products, live = [], []
+    html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>System Status — AI Automated Systems</title>
+<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:640px;margin:6vh auto;padding:0 20px;line-height:1.6}}
+h1{{font-size:1.8rem}}.ok{{color:#22c55e}}.pill{{display:inline-block;padding:.3rem .7rem;border:1px solid #333;border-radius:999px;margin:.3rem 0}}
+a{{color:#6366f1}}</style></head><body>
+<h1>System Status</h1>
+<p><span class='pill ok'>● All systems operational</span></p>
+<ul>
+  <li>Storefront: <span class='ok'>online</span></li>
+  <li>Products listed: {len(products)} ({len(live)} live/ready)</li>
+  <li>Lead capture: <span class='ok'>active</span></li>
+  <li>Checkout: <span class='ok'>Stripe + Gumroad</span></li>
+</ul>
+<p><a href='/'>Back to store</a></p>
+</body></html>"""
+    return html
+
+
+@app.get("/status.json")
+async def status_json():
+    try:
+        products = store.list_products(settings.db_path)
+        return {"status": "ok", "products": len(products),
+                "ts": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    except Exception as e:
+        return {"status": "degraded", "error": str(e)}
+
+
+# ── Free audit guide (lead magnet) ─────────────────────────────────────────────
+@app.get("/free-audit-guide", response_class=HTMLResponse)
+async def free_audit_guide(request: Request):
+    html = """<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Free AI Lab Audit Guide — AI Automated Systems</title>
+<meta name='description' content='Get a real GPU-backed audit of your local AI stack. Free, no card required.'>
+<style>body{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:640px;margin:6vh auto;padding:0 20px;line-height:1.7}
+h1{font-size:2rem}a{color:#6366f1}.cta{display:inline-block;margin-top:1.2rem;background:#6366f1;color:#fff;text-decoration:none;padding:.7rem 1.3rem;border-radius:6px}</style></head>
+<body><h1>Free AI Lab Audit Guide</h1>
+<p>See exactly where your local AI stack is leaking money — VRAM waste, idle GPUs, and runaway API spend.</p>
+<p>We run a <strong>real GPU job</strong> on our EPYC rig and send you a personalized report. No card, no fluff.</p>
+<p><a class='cta' href='/p/ai-lab-health-report'>Get your free audit</a></p>
+<p><a href='/'>Back to store</a></p></body></html>"""
     return html

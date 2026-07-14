@@ -4,6 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title }}</title>
+  <meta name="description" content="Private AI lab audits, local inference, ComfyUI workflows, automation kits, and secure GPU compute for builders and teams.">
+  <link rel="canonical" href="https://aiautomatedsystems.ca/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="AI Automated Systems">
+  <meta property="og:title" content="{{ title }}">
+  <meta property="og:description" content="Private AI lab audits, local inference, ComfyUI workflows, automation kits, and secure GPU compute.">
+  <meta property="og:url" content="https://aiautomatedsystems.ca/">
+  <meta name="twitter:card" content="summary_large_image">
   <style>
     :root {
       --bg: #0d0d0f;
@@ -192,10 +200,10 @@
       <div class="actions">
         <a href="/p/{{ p.slug }}" class="btn btn-secondary">View Details</a>
         {% if p.status == 'ready' %}
-          {% if p.gumroad_url %}
-          <a href="{{ p.gumroad_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">{% if cta_variant == 'B' %}Get It on Gumroad{% else %}Buy on Gumroad{% endif %}</a>
-          {% elif p.checkout_url %}
+          {% if p.checkout_url %}
           <a href="{{ p.checkout_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">{% if cta_variant == 'B' %}Get Instant Access{% else %}Buy Now{% endif %}</a>
+          {% elif p.gumroad_url %}
+          <a href="{{ p.gumroad_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">{% if cta_variant == 'B' %}Get It on Gumroad{% else %}Buy on Gumroad{% endif %}</a>
           {% endif %}
         {% else %}
           <a href="/p/{{ p.slug }}" class="btn btn-primary">Contact / Details</a>

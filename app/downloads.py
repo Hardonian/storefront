@@ -2,6 +2,7 @@ import os
 import time
 import hmac
 import hashlib
+import re
 from pathlib import Path
 from fastapi import HTTPException
 
@@ -34,9 +35,18 @@ def build_download_url(slug: str, ttl_seconds: int = 3600) -> str:
 
 
 def resolve_download(slug: str, expires: str, token: str):
-    if not verify(slug, expires, token):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,119}", slug):
+        raise HTTPException(status_code=400, detail='Invalid download path')
+    try:
+        expires_at = int(expires)
+    except (TypeError, ValueError):
         raise HTTPException(status_code=403, detail='Invalid or expired download link')
-    path = BASE_DIR / f"{slug}.zip"
-    if not path.exists():
+    if not verify(slug, expires_at, token):
+        raise HTTPException(status_code=403, detail='Invalid or expired download link')
+    base = BASE_DIR.resolve()
+    path = (base / f"{slug}.zip").resolve()
+    if path.parent != base:
+        raise HTTPException(status_code=400, detail='Invalid download path')
+    if not path.is_file():
         raise HTTPException(status_code=404, detail='Bundle not found')
     return path

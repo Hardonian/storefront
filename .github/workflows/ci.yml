@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install deps
-        run: pip install fastapi uvicorn httpx pytest python-multipart pydantic pydantic-settings jinja2 prometheus-client email-validator
+        run: pip install fastapi uvicorn httpx httpx2 pytest python-multipart pydantic pydantic-settings jinja2 prometheus-client email-validator
       - name: Test storefront
         env:
           STOREFRONT_DOWNLOAD_SECRET: ci-placeholder-secret-not-real

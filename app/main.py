@@ -612,6 +612,7 @@ async def index(request: Request):
             product_grid_dense=flags.get("product_grid_dense", False),
             popular_slugs=POPULAR_SLUGS,
             empire_slugs=["agent-ops-concierge","private-ai-vault","inference-api-starter","inference-api-scale","compliance-kit","compliance-keep-current","uptime-bond"],
+            platform_label="The Platform",
         )
         return HTMLResponse(html)
     except Exception:

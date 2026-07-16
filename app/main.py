@@ -670,13 +670,36 @@ TRUST_BADGES = [
     ("🤝", "Real human support", "Replies within 1 business day"),
 ]
 
-def _trust_row_html() -> str:
-    badges = "".join(
+PLATFORM_SLUGS = {
+    "agent-ops-concierge", "private-ai-vault", "inference-api-starter",
+    "inference-api-scale", "compliance-kit", "compliance-keep-current", "uptime-bond",
+}
+PLATFORM_TRUST = [
+    ("📊", "Observable by design", "Live GPU + job audit log, no black box"),
+    ("🏛️", "Audit-ready evidence", "SOC 2 control map + incident runbook"),
+    ("🧱", "Isolated per tenant", "Per-key namespace, hard usage caps"),
+    ("🤖", "Self-healing 24/7", "Watchdogs auto-recover the stack"),
+]
+
+
+def _trust_row_html(slug: str = "") -> str:
+    badges = [
         f'<div class="tbadge"><span class="ticon">{icon}</span>'
         f'<span class="ttext"><b>{title}</b><br><small>{sub}</small></span></div>'
         for icon, title, sub in TRUST_BADGES
-    )
-    return f'<div class="trust-row">{badges}</div>'
+    ]
+    if slug in PLATFORM_SLUGS:
+        badges += [
+            f'<div class="tbadge"><span class="ticon">{icon}</span>'
+            f'<span class="ttext"><b>{title}</b><br><small>{sub}</small></span></div>'
+            for icon, title, sub in PLATFORM_TRUST
+        ]
+        if slug in ("uptime-bond", "agent-ops-concierge", "inference-api-scale", "private-ai-vault"):
+            badges.append(
+                '<div class="tbadge"><span class="icon">📈</span>'
+                '<span class="ttext"><b>99.5% SLA</b><br><small>Auto-refund on breach</small></span></div>'
+            )
+    return f'<div class="trust-row">{"".join(badges)}</div>'
 
 def _deliverables_html(slug: str) -> str:
     m = _manifest_for(slug)
@@ -857,7 +880,7 @@ async def product_page(slug: str, request: Request):
                   referrer=request.headers.get("referer"))
 
     # Pre-built CRO / trust / deliverables blocks
-    trust_html = _trust_row_html()
+    trust_html = _trust_row_html(slug)
     urgency_html = _urgency_badge()
     deliverables_html = _deliverables_html(slug)
     tier_html = _tier_includes_html(product.get("price", ""))
@@ -1410,6 +1433,43 @@ async def track_event(payload: dict = Body(default={}), request: Request = None)
 @app.get("/api/gpu-status")
 async def gpu_status():
     return _gpu_status()
+
+
+@app.get("/api/roi-calc")
+async def roi_calc(cloud_spend: float = 500.0, hours: int = 40, tier: str = "starter"):
+    """Deterministic bottom-line calculator.
+
+    Compares a prospect's current cloud GPU cost to our fixed platform tier.
+    Assumptions are explicit and conservative (no theatrical numbers):
+      - Cloud effective rate = cloud_spend / hours  (their real blended $/hr)
+      - Our tiers are fixed-price and include isolation + monitoring + SLA:
+          starter $49/mo ~ 20 GPU-hr, scale $199/mo ~ 100 GPU-hr,
+          concierge $497/mo ~ managed 200 GPU-hr equivalent
+      - We do NOT count their engineering time saved (separate, larger win).
+    Returns observable, auditable numbers.
+    """
+    TIERS = {
+        "starter": {"price": 49, "gpu_hr": 20},
+        "scale": {"price": 199, "gpu_hr": 100},
+        "concierge": {"price": 497, "gpu_hr": 200},
+    }
+    t = TIERS.get(tier, TIERS["starter"])
+    cloud_rate = cloud_spend / max(hours, 1)
+    our_rate = t["price"] / t["gpu_hr"]
+    monthly_savings = max(0.0, cloud_spend - t["price"])
+    annual_savings = monthly_savings * 12
+    pct = (monthly_savings / cloud_spend * 100) if cloud_spend else 0.0
+    return {
+        "tier": tier,
+        "inputs": {"cloud_spend": cloud_spend, "hours": hours},
+        "cloud_blended_rate_per_hr": round(cloud_rate, 2),
+        "our_fixed_rate_per_hr": round(our_rate, 2),
+        "our_monthly_price": t["price"],
+        "monthly_savings": round(monthly_savings, 2),
+        "annual_savings": round(annual_savings, 2),
+        "savings_pct": round(pct, 1),
+        "note": "Fixed price includes isolation, monitoring, SLA. Excludes engineering-time saved.",
+    }
 
 
 @app.get("/api/analytics")

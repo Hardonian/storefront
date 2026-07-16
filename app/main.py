@@ -496,11 +496,24 @@ async def sitemap_xml():
                 f"  <url><loc>{base}/p/{p['slug']}</loc>"
                 f"<changefreq>weekly</changefreq></url>"
             )
+    # Image sitemap (Google Images traffic) for product assets that exist.
+    img_urls = []
+    for p in products:
+        if p.get("status") != "ready":
+            continue
+        ip = Path(p.get("image_path") or "")
+        if ip.exists():
+            rel = ip.relative_to(PRODUCT_ASSETS) if PRODUCT_ASSETS in ip.parents else ip.name
+            img_urls.append(
+                f"  <image:image><image:loc>{base}/product-assets/{rel}</image:loc></image:image>"
+            )
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        + "\n".join(urls) + "\n"
-        + "</urlset>\n"
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+        'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
+        + "\n".join(urls)
+        + ("\n" + "\n".join(img_urls) if img_urls else "")
+        + "\n</urlset>\n"
     )
     return PlainTextResponse(xml)
 
@@ -598,6 +611,7 @@ async def index(request: Request):
             trust_bar_enabled=flags.get("trust_bar_enabled", True),
             product_grid_dense=flags.get("product_grid_dense", False),
             popular_slugs=POPULAR_SLUGS,
+            empire_slugs=["agent-ops-concierge","private-ai-vault","inference-api-starter","inference-api-scale","compliance-kit","compliance-keep-current","uptime-bond"],
         )
         return HTMLResponse(html)
     except Exception:

@@ -120,6 +120,32 @@
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
     .gpu-stat { font-size: 1.8rem; font-weight: 800; color: var(--price); margin: 0.25rem 0; }
     .gpu-sub { color: var(--text-muted); font-size: 0.8rem; }
+    .empire-band {
+      margin: 3rem auto 1rem; padding: 2rem 1.5rem; max-width: 1100px;
+      background: linear-gradient(135deg, #1a1a1e, #16213a);
+      border: 1px solid var(--border); border-radius: 16px; text-align: center;
+    }
+    .empire-title {
+      font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #fff 0%, #a1a1aa 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .empire-sub { color: var(--text-muted); font-size: 0.95rem; margin: 0.5rem 0 1.5rem; }
+    .empire-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 1rem; text-align: left;
+    }
+    .empire-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      overflow: hidden; text-decoration: none; color: var(--text);
+      transition: border-color 0.2s, transform 0.2s; display: flex; flex-direction: column;
+    }
+    .empire-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .empire-card img { width: 100%; height: 120px; object-fit: cover; display: block; }
+    .empire-card-body { padding: 1rem; display: flex; flex-direction: column; gap: 0.4rem; flex: 1; }
+    .empire-card-body h3 { font-size: 1rem; font-weight: 700; }
+    .empire-card-body .price { color: var(--price); font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem; }
+    .empire-cta { margin-top: auto; text-align: center; }
   </style>
   <script src="/landing-assets/analytics.js" defer></script>
   <script type="application/ld+json">
@@ -216,7 +242,27 @@
     <div class="empty">
       <p>No products available yet. Check back soon.</p>
     </div>
-    {% endif %}
+  {% endif %}
+
+  {% set empire = products | selectattr("slug", "in", empire_slugs) | list %}
+  {% if empire %}
+  <section class="empire-band">
+    <h2 class="empire-title">The Empire — Full-Suite AI Operations</h2>
+    <p class="empire-sub">One operator. A self-healing GPU fleet, a live revenue stack, and done-for-you services — all running 24/7.</p>
+    <div class="empire-grid">
+      {% for p in empire %}
+      <a class="empire-card" href="/p/{{ p.slug }}">
+        {% if p.image_path %}<img src="{{ p.image_path }}" alt="{{ p.name }}" loading="lazy">{% endif %}
+        <div class="empire-card-body">
+          <h3>{{ p.name }}</h3>
+          <p class="price">{{ p.price }}</p>
+          <span class="btn btn-primary empire-cta">{% if cta_variant == 'B' %}Get Started{% else %}Explore{% endif %} →</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 
     <footer>
       <p>AI Automated Systems &middot; <a href="/legal/terms-of-service">Terms</a> &middot; <a href="/legal/privacy-policy">Privacy</a> &middot; <a href="/legal/refund-policy">Refunds</a></p>

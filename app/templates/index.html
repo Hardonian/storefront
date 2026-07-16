@@ -146,6 +146,23 @@
     .empire-card-body h3 { font-size: 1rem; font-weight: 700; }
     .empire-card-body .price { color: var(--price); font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem; }
     .empire-cta { margin-top: auto; text-align: center; }
+    .roi-band {
+      margin: 2.5rem auto; padding: 2rem 1.5rem; max-width: 900px;
+      background: var(--card); border: 1px solid var(--border); border-radius: 16px; text-align: center;
+    }
+    .roi-title { font-size: 1.4rem; font-weight: 800; }
+    .roi-sub { color: var(--text-muted); font-size: 0.9rem; margin: 0.4rem 0 1.2rem; }
+    .roi-row { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .roi-row label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; color: var(--text-muted); text-align: left; }
+    .roi-row input, .roi-row select {
+      padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid var(--border);
+      background: #0d0d0f; color: var(--text); font-size: 0.95rem; width: 200px;
+    }
+    .roi-result {
+      margin-top: 1.2rem; font-size: 1.05rem; font-weight: 600; color: var(--price);
+      min-height: 1.5em;
+    }
+    .roi-result small { color: var(--text-muted); font-weight: 400; }
   </style>
   <script src="/landing-assets/analytics.js" defer></script>
   <script type="application/ld+json">
@@ -199,6 +216,27 @@
     <div class="msg" id="nl-msg"></div>
   </div>
   {% endif %}
+
+  <section class="roi-band">
+    <h2 class="roi-title">See Your Bottom-Line Savings</h2>
+    <p class="roi-sub">Fixed-price private GPU inference vs. volatile cloud spend. Deterministic, no black box.</p>
+    <div class="roi-row">
+      <label>Current cloud GPU spend ($/mo)
+        <input type="number" id="roi-cloud" value="800" min="0" step="50">
+      </label>
+      <label>GPU hours / mo
+        <input type="number" id="roi-hours" value="40" min="1" step="5">
+      </label>
+      <label>Tier
+        <select id="roi-tier">
+          <option value="starter">Starter $49</option>
+          <option value="scale" selected>Scale $199</option>
+          <option value="concierge">Concierge $497</option>
+        </select>
+      </label>
+    </div>
+    <div class="roi-result" id="roi-result">—</div>
+  </section>
 
   {% if products %}
   <div class="grid {% if product_grid_dense %}grid-dense{% endif %}">
@@ -327,5 +365,29 @@
     })();
   </script>
   <script src="/support-widget.js" defer></script>
+  <script>
+    // ROI calculator (deterministic, observable)
+    (function () {
+      var cloud = document.getElementById('roi-cloud');
+      var hours = document.getElementById('roi-hours');
+      var tier = document.getElementById('roi-tier');
+      var out = document.getElementById('roi-result');
+      if (!cloud || !out) return;
+      function calc() {
+        var c = parseFloat(cloud.value) || 0, h = parseFloat(hours.value) || 1, t = tier.value;
+        fetch('/api/roi-calc?cloud_spend=' + c + '&hours=' + h + '&tier=' + t)
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            out.innerHTML = 'Save <b>$' + d.monthly_savings.toFixed(0) + '/mo</b> ($' +
+              d.annual_savings.toFixed(0) + '/yr, ' + d.savings_pct + '%) vs cloud &middot; ' +
+              'our rate $' + d.our_fixed_rate_per_hr + '/hr vs cloud $' + d.cloud_blended_rate_per_hr + '/hr ' +
+              '<br><small>Fixed price includes isolation, monitoring, SLA.</small>';
+          })
+          .catch(function () { out.textContent = 'Calculator unavailable.'; });
+      }
+      [cloud, hours, tier].forEach(function (el) { el.addEventListener('input', calc); el.addEventListener('change', calc); });
+      calc();
+    })();
+  </script>
 </body>
 </html>

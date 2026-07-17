@@ -217,6 +217,7 @@
     <form id="nl-form">
       <input type="email" id="nl-email" placeholder="you@company.com" required>
       <input type="text" id="nl-code" placeholder="discount code (optional)" style="flex:0 0 180px;padding:0.7rem 1rem;border-radius:8px;border:1px solid var(--border);background:#0d0d0f;color:var(--text);font-size:0.9rem;">
+      <input type="text" id="nl-website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;">
       <button type="submit" class="btn btn-primary">Subscribe</button>
     </form>
     <div class="msg" id="nl-msg"></div>
@@ -332,13 +333,14 @@
         e.preventDefault();
         var email = document.getElementById('nl-email').value.trim();
         var code = (document.getElementById('nl-code') || {}).value.trim();
+        var website = (document.getElementById('nl-website') || {}).value.trim();
         msg.className = 'msg';
         msg.textContent = 'Submitting…';
         var tag = code ? ('discount-' + code.toLowerCase()) : 'newsletter';
         fetch('/api/subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email, tag: tag })
+          body: JSON.stringify({ email: email, tag: tag, website: website })
         })
         .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
         .then(function () {

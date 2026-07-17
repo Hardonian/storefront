@@ -306,6 +306,8 @@ class LeadCreate(BaseModel):
 class SubscribeCreate(BaseModel):
     email: str = Field(..., description="Email to subscribe")
     tag: Optional[str] = Field(default="newsletter")
+    # Honeypot: real users never fill this; bots do.
+    website: Optional[str] = Field(default=None)
 
 
 def _validate_email(email: str) -> str:
@@ -1638,6 +1640,8 @@ async def create_lead(payload: LeadCreate, request: Request):
 @app.post("/api/subscribe")
 async def subscribe(payload: SubscribeCreate, request: Request):
     _check_post_rate_limit(client_ip(request))
+    if payload.website:  # honeypot tripped — silent drop
+        return {"status": "ok", "email": payload.email, "tag": payload.tag}
     email = _validate_email(payload.email)
     store.create_lead(
         db_path=settings.db_path,

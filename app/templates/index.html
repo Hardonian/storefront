@@ -390,5 +390,21 @@
       calc();
     })();
   </script>
+  <script>
+    // Funnel: record checkout-intent clicks on [data-slug] CTAs (item 4).
+    (function () {
+      document.querySelectorAll('[data-slug]').forEach(function (el) {
+        el.addEventListener('click', function () {
+          try {
+            fetch('/api/track', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ event: 'checkout_click', slug: el.getAttribute('data-slug') })
+            }).catch(function () {});
+          } catch (e) {}
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

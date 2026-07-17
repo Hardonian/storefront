@@ -1078,7 +1078,7 @@ footer a{{color:var(--accent);text-decoration:none}}
         else:
             # No usable checkout: route to contact so the lead is never lost (no dead end).
             cta_html += f'<a class="cta" href="/contact?product={slug}" data-slug="{slug}">📩 Get access →</a>'
-        if gumroad:
+        if gumroad and "gumroad.com" in gumroad:
             cta_html += f'<a class="cta upgrade" href="{_html.escape(gumroad, quote=True)}" target="_blank" rel="noopener" data-slug="{slug}">⬆ Also on Gumroad →</a>'
         if has_enterprise:
             cta_html += f'<a class="cta enterprise" href="/contact?product={slug}">🏢 Talk to Enterprise →</a>'

@@ -13,6 +13,7 @@ import re
 import subprocess
 import logging
 import uuid
+from xml.sax.saxutils import escape as _xml_escape
 from contextlib import asynccontextmanager
 from pathlib import Path
 from collections import defaultdict, deque
@@ -480,42 +481,67 @@ async def robots_txt():
 async def sitemap_xml():
     products = store.list_products(settings.db_path)
     base = "https://aiautomatedsystems.ca"
-    urls = [f"  <url><loc>{base}/</loc><changefreq>daily</changefreq></url>",
-            f"  <url><loc>{base}/pricing</loc><changefreq>weekly</changefreq></url>",
-            f"  <url><loc>{base}/blog</loc><changefreq>daily</changefreq></url>",
-            f"  <url><loc>{base}/tools/gpu-cost-calculator</loc><changefreq>monthly</changefreq></url>"]
+    lastmod = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    urls: list[tuple[str, str, str | None]] = [
+        (f"{base}/", "daily", None),
+        (f"{base}/pricing", "weekly", None),
+        (f"{base}/blog", "daily", None),
+        (f"{base}/tools/gpu-cost-calculator", "monthly", None),
+    ]
     for topic in ("comfyui-alternative", "n8n-self-hosted", "private-inference", "local-ai-stack"):
-        urls.append(f"  <url><loc>{base}/compare/{topic}</loc><changefreq>monthly</changefreq></url>")
+        urls.append((f"{base}/compare/{topic}", "monthly", None))
     drafts_dir = Path('/home/scott/ai-lab/reports/content/drafts')
     if drafts_dir.exists():
         for draft in sorted(drafts_dir.glob('*.md'), reverse=True)[:100]:
-            urls.append(f"  <url><loc>{base}/blog/{draft.stem}</loc><changefreq>monthly</changefreq></url>")
+            urls.append((f"{base}/blog/{draft.stem}", "monthly", None))
     for p in products:
         if p.get("status") == "ready":
-            urls.append(
-                f"  <url><loc>{base}/p/{p['slug']}</loc>"
-                f"<changefreq>weekly</changefreq></url>"
-            )
-    # Image sitemap (Google Images traffic) for product assets that exist.
-    img_urls = []
-    for p in products:
-        if p.get("status") != "ready":
-            continue
-        ip = Path(p.get("image_path") or "")
-        if ip.exists():
-            rel = ip.relative_to(PRODUCT_ASSETS) if PRODUCT_ASSETS in ip.parents else ip.name
-            img_urls.append(
-                f"  <image:image><image:loc>{base}/product-assets/{rel}</image:loc></image:image>"
-            )
+            image_url = None
+            ip = Path(p.get("image_path") or "")
+            if ip.exists():
+                rel = ip.relative_to(PRODUCT_ASSETS) if PRODUCT_ASSETS in ip.parents else ip.name
+                image_url = f"{base}/product-assets/{rel}"
+            urls.append((f"{base}/p/{p['slug']}", "weekly", image_url))
+    rendered_urls = []
+    for loc, frequency, image_url in urls:
+        image = (
+            f"<image:image><image:loc>{_xml_escape(image_url)}</image:loc></image:image>"
+            if image_url else ""
+        )
+        rendered_urls.append(
+            f"  <url><loc>{_xml_escape(loc)}</loc><lastmod>{lastmod}</lastmod>"
+            f"<changefreq>{frequency}</changefreq>{image}</url>"
+        )
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
         'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
-        + "\n".join(urls)
-        + ("\n" + "\n".join(img_urls) if img_urls else "")
+        + "\n".join(rendered_urls)
         + "\n</urlset>\n"
     )
     return PlainTextResponse(xml)
+
+
+@app.get("/llms.txt", response_class=PlainTextResponse)
+async def llms_txt():
+    """Machine-readable, non-sensitive product discovery for AI/search agents."""
+    products = [p for p in store.list_products(settings.db_path) if p.get("status") == "ready"]
+    lines = [
+        "# AI Automated Systems",
+        "",
+        "> Private AI infrastructure, automation kits, and GPU operations products.",
+        "> Canonical site: https://aiautomatedsystems.ca/",
+        "",
+        "## Public pages",
+        "- https://aiautomatedsystems.ca/pricing",
+        "- https://aiautomatedsystems.ca/blog",
+        "- https://aiautomatedsystems.ca/tools/gpu-cost-calculator",
+        "- https://aiautomatedsystems.ca/request-access",
+        "",
+        "## Ready products",
+    ]
+    lines.extend(f"- https://aiautomatedsystems.ca/p/{p['slug']}" for p in products)
+    return PlainTextResponse("\n".join(lines) + "\n")
 
 
 # ── Public product pages (real buyer surface) ──────────────────────────────

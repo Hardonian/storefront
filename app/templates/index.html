@@ -263,6 +263,7 @@
       {% if p.price %}<p class="price">{{ p.price }}</p>{% endif %}
       <div class="actions">
         <a href="/p/{{ p.slug }}" class="btn btn-secondary">View Details</a>
+        <a href="/lead?slug={{ p.slug }}" class="btn btn-secondary" style="border-color:var(--accent);color:var(--accent)">Free Guide</a>
         {% if p.status == 'ready' %}
           {% if p.checkout_url %}
           <a href="{{ p.checkout_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">{% if cta_variant == 'B' %}Get Instant Access{% else %}Buy Now{% endif %}</a>

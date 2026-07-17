@@ -928,6 +928,27 @@ async def product_page(slug: str, request: Request):
     deliverables_html = _deliverables_html(slug)
     tier_html = _tier_includes_html(product.get("price", ""))
 
+    # Live Ops Dashboard visual (productized operational capability)
+    import html as _html
+    dashboard_html = ""
+    _dash_url = str(product.get("dashboard_url") or "").strip()
+    if _dash_url:
+        _feats = product.get("dashboard_features") or [
+            "Revenue leverage, system productivity, predictive signals",
+            "Profit/financial modelling and strategic outlook",
+            "Updates in real time from the live sovereign fleet",
+        ]
+        _feat_html = "".join(f"<li>{_html.escape(str(f))}</li>" for f in _feats)
+        dashboard_html = (
+            '<div class="dash-card">'
+            '<div class="dash-head">📊 <b>Live Ops Dashboard</b> — included</div>'
+            f'<p class="dash-sub">Every node in this fleet feeds one real-time operational pane. '
+            f'Verified fleet metrics, predictive signals, and financial modelling — the same engine running our own sovereign stack.</p>'
+            f'<ul class="dash-feats">{_feat_html}</ul>'
+            '<a class="cta secondary" href="/request-access?product=' + slug + '">Request a live dashboard demo</a>'
+            '</div>'
+        )
+
     # Escape all catalog copy before interpolation; product data is content, not markup.
     import html as _html
     name_raw = str(product.get("name") or "")
@@ -1015,6 +1036,11 @@ footer a{{color:var(--accent);text-decoration:none}}
 .exit-modal.show{{display:flex}}
 .exit-card{{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:2rem;max-width:420px;text-align:center}}
 .exit-card input{{width:100%;padding:.6rem;margin:.6rem 0;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)}}
+.dash-card{{margin:1.5rem 0;padding:1.1rem 1.3rem;border-radius:14px;background:linear-gradient(135deg,#0f1f17,#0d1117);border:1px solid #166534}}
+.dash-head{{font-size:1.05rem;font-weight:700;color:#4ade80;margin-bottom:.4rem}}
+.dash-sub{{color:var(--muted);font-size:.9rem;margin:.2rem 0 .6rem}}
+.dash-feats{{margin:.4rem 0 1rem;padding-left:1.1rem;color:var(--text);font-size:.88rem;line-height:1.6}}
+.dash-feats li{{margin:.2rem 0}}
 </style></head><body><div class="container">
 <!-- SEO: JSON-LD Product -->
 <script type="application/ld+json">{product_schema_json}</script>
@@ -1022,6 +1048,7 @@ footer a{{color:var(--accent);text-decoration:none}}
 <span class="badge">{status_html}</span>
 { f'<img class="img" src="{img}" alt="{name_html}">' if img else '' }
 { f'<p class="price">{price_html}</p>' if price_html else '' }
+{dashboard_html}
 {roi_html}
 { f'<p><b>For:</b> {audience_html}</p>' if audience_html else '' }
 { f'<p class="pain">{pain_html}</p>' if pain_html else '' }

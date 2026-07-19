@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+
 from app.main import app
 
 client = TestClient(app)
@@ -160,6 +161,7 @@ def test_paid_order_success_and_fulfillment_proxy(monkeypatch):
 
 def test_privacy_erasure_is_queued_not_executed(monkeypatch, tmp_path):
     import sqlite3
+
     import app.main as m
     db = tmp_path / "privacy.db"
     con = sqlite3.connect(db)
@@ -179,6 +181,7 @@ def test_privacy_erasure_is_queued_not_executed(monkeypatch, tmp_path):
 
 def test_subscribe_persists_lead(monkeypatch, tmp_path):
     import sqlite3
+
     import app.main as m
     db = tmp_path / "subscribe.db"
     m.store.init_db(str(db))
@@ -197,6 +200,16 @@ def test_blog_and_compare_seo_and_soft_404s():
     assert "rel='canonical'" in index.text and "property='og:title'" in index.text
     assert client.get("/compare/not-a-real-topic").status_code == 404
     assert client.get("/blog/..%2Fsecrets").status_code in (404, 422)
+
+
+def test_compare_valid_topic_renders_html():
+    # Regression: /compare/{topic} built `html` but was missing `return`,
+    # causing a 500 on every valid topic. Valid topics must render 200 HTML.
+    for topic in ("comfyui-alternative", "n8n-self-hosted", "private-inference", "local-ai-stack"):
+        r = client.get(f"/compare/{topic}")
+        assert r.status_code == 200, f"{topic} should be 200, got {r.status_code}"
+        assert "text/html" in r.headers.get("content-type", "")
+        assert "<html" in r.text.lower()
 
 
 def test_fulfillment_page_is_csp_safe_and_has_recoverable_buyer_states():
@@ -301,8 +314,9 @@ def test_public_security_headers_and_structured_request_log(caplog):
 
 
 def test_ssrf_destinations_are_fixed_and_checkout_urls_reject_authority_tricks(monkeypatch):
-    import app.main as m
     import httpx
+
+    import app.main as m
 
     assert m._safe_external_url("https://user@buy.stripe.com/pay") == ""
     assert m._safe_external_url("https://buy.stripe.com:444/pay") == ""
@@ -330,6 +344,7 @@ def test_ssrf_destinations_are_fixed_and_checkout_urls_reject_authority_tricks(m
 
 def test_download_and_content_routes_reject_path_traversal(monkeypatch, tmp_path):
     import time
+
     import app.downloads as downloads
 
     bundles = tmp_path / "bundles"

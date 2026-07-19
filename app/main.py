@@ -5,38 +5,41 @@ Run:  ./run.sh  (or uvicorn app.main:app --host 0.0.0.0 --port 8020)
 
 from __future__ import annotations
 
-import time
-import os
-import json
 import datetime
-import re
-import subprocess
+import json
 import logging
-import uuid
-from xml.sax.saxutils import escape as _xml_escape
-from contextlib import asynccontextmanager
-from pathlib import Path
-from collections import defaultdict, deque
-from typing import Optional
-
-from fastapi import FastAPI, Request, HTTPException, Depends, Header, Body, Query
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, FileResponse, RedirectResponse, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.staticfiles import StaticFiles
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-from pydantic import BaseModel, EmailStr, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Any, Dict, Optional
-
-import asyncio
-import httpx
-
-from app import store
-from app import flags as flag_engine
+import os
+import re
 
 # ── Analytics (local-first conversion tracking) ───────────────────────────────
 import sqlite3 as _sa_sqlite
+import subprocess
+import time
+import uuid
+from collections import defaultdict, deque
+from contextlib import asynccontextmanager
+from pathlib import Path
+from xml.sax.saxutils import escape as _xml_escape
+
+import httpx
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
+from fastapi.staticfiles import StaticFiles
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app import flags as flag_engine
+from app import store
 
 _ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS events (
@@ -101,7 +104,7 @@ settings.templates_dir = str(Path(__file__).resolve().parent / "templates")
 logger = logging.getLogger("storefront")
 
 
-def require_operator(x_api_key: Optional[str] = Header(None)) -> None:
+def require_operator(x_api_key: str | None = Header(None)) -> None:
     """Fail closed for internal metrics, lead, and analytics surfaces."""
     if not settings.api_key or x_api_key != settings.api_key:
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -137,6 +140,7 @@ app = FastAPI(
 # ── Cache control middleware ──────────────────────────────────────────────────
 from starlette.middleware.base import BaseHTTPMiddleware
 
+
 class CacheControlMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -167,6 +171,7 @@ app.add_middleware(PrometheusMiddleware, service_name="storefront")
 
 # Cross-repo observability: request IDs + structured access logs + /internal/* probes.
 from app.observability import setup_observability as _setup_obs  # noqa: E402
+
 _setup_obs(app, service_name="storefront", version="0.1.0")
 
 app.add_middleware(
@@ -258,10 +263,10 @@ async def request_context(request: Request, call_next):
 @app.post("/csp-report")
 async def csp_report(request: Request):
     # Consume CSP violation reports (sent by browsers under Report-Only). No-op store.
-    try:
+    import contextlib
+
+    with contextlib.suppress(Exception):
         await request.body()
-    except Exception:
-        pass
     return Response(status_code=204)
 
 # ── Rate limiting (in-memory, 20 req/min/IP on POST endpoints) ────────────────
@@ -297,17 +302,17 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 class LeadCreate(BaseModel):
     email: str = Field(..., description="Contact email")
-    product_slug: Optional[str] = None
+    product_slug: str | None = None
     source: str = Field(default="landing")
-    notes: Optional[str] = None
-    tag: Optional[str] = Field(default="lead")
+    notes: str | None = None
+    tag: str | None = Field(default="lead")
 
 
 class SubscribeCreate(BaseModel):
     email: str = Field(..., description="Email to subscribe")
-    tag: Optional[str] = Field(default="newsletter")
+    tag: str | None = Field(default="newsletter")
     # Honeypot: real users never fill this; bots do.
-    website: Optional[str] = Field(default=None)
+    website: str | None = Field(default=None)
 
 
 def _validate_email(email: str) -> str:
@@ -331,8 +336,6 @@ if (LANDING_DIR / "assets").exists():
 
 # Serve standalone landing HTML previews at /landing/<slug>.html
 # These are the generated, real-CTA product landing pages.
-from fastapi.responses import FileResponse
-import os
 
 @app.get("/landing/{slug}.html")
 async def landing_html(slug: str):
@@ -363,7 +366,7 @@ async def health():
 
 @app.get("/metrics")
 async def metrics(_: None = Depends(require_operator)):
-    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
     return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -413,7 +416,7 @@ AU_WIDGET_JS = r"""
 
 class AskRequest(BaseModel):
     query: str = Field(..., description="Customer question for the AU support bot")
-    history: Optional[list[str]] = None
+    history: list[str] | None = None
 
 
 @app.post("/api/ask")
@@ -509,7 +512,7 @@ async def robots_txt():
         "Allow: /\n"
         "Disallow: /api/\n"
         "Disallow: /legal/\n"
-        f"Sitemap: https://aiautomatedsystems.ca/sitemap.xml\n"
+        "Sitemap: https://aiautomatedsystems.ca/sitemap.xml\n"
     )
     return PlainTextResponse(body)
 
@@ -518,7 +521,7 @@ async def robots_txt():
 async def sitemap_xml():
     products = store.list_products(settings.db_path)
     base = "https://aiautomatedsystems.ca"
-    lastmod = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    lastmod = datetime.datetime.now(datetime.UTC).date().isoformat()
     urls: list[tuple[str, str, str | None]] = [
         (f"{base}/", "daily", None),
         (f"{base}/pricing", "weekly", None),
@@ -614,7 +617,8 @@ def _gpu_status() -> dict:
                 # alt shape: {"gpu":{"vram_used_mib", "vram_total_mib", "name"}}
                 g = data.get("gpu")
                 if isinstance(g, dict) and g.get("vram_total_mib"):
-                    total = g["vram_total_mib"]; used = g.get("vram_used_mib", 0)
+                    total = g["vram_total_mib"]
+                    used = g.get("vram_used_mib", 0)
                     free = round(100 * (total - used) / total)
                     return {"status": "ok", "free_pct": free, "gpu": g.get("name", "GPU")}
     except Exception:
@@ -959,7 +963,8 @@ async def api_unsubscribe(request: Request, payload: dict = Body(default={})):
         import sqlite3 as _sql
         db = _sql.connect(settings.db_path)
         db.execute("UPDATE leads SET status='unsubscribed', notes='opt-out via /unsubscribe' WHERE email=?", (email,))
-        db.commit(); db.close()
+        db.commit()
+        db.close()
         return {"ok": True}
     except Exception:
         logger.exception("unsubscribe failed")
@@ -1053,9 +1058,7 @@ async def product_page(slug: str, request: Request):
               "agent-ops-concierge": ("concierge", 497, 200)}
     if slug in _TIERS:
         t, price, gpu_hr = _TIERS[slug]
-        cspend, hrs = 800, 40
-        our_rate = price / gpu_hr
-        cloud_rate = cspend / hrs
+        cspend = 800
         monthly_savings = max(0.0, cspend - price)
         annual = monthly_savings * 12
         pct = (monthly_savings / cspend * 100) if cspend else 0.0
@@ -1207,7 +1210,7 @@ footer a{{color:var(--accent);text-decoration:none}}
     checkout = _safe_external_url(product.get("checkout_url"))
     gumroad = _safe_external_url(product.get("gumroad_url"))
     if has_free:
-        cta_html += '<a class="cta secondary" href="/p/{slug}/free" data-slug="{slug}">🎁 Start free →</a>'.format(slug=slug)
+        cta_html += f'<a class="cta secondary" href="/p/{slug}/free" data-slug="{slug}">🎁 Start free →</a>'
     if product.get("status") == "ready":
         if checkout:
             cta_html += f'<a class="cta" href="{_html.escape(checkout, quote=True)}" target="_blank" rel="noopener" data-slug="{slug}">⚡ Get Pro →</a>'
@@ -1448,9 +1451,10 @@ async def api_lead(request: Request, payload: dict = Body(default={})):
             tag TEXT, referrer TEXT, utm_source TEXT, utm_medium TEXT, utm_campaign TEXT)""")
         db.execute(
             "INSERT OR IGNORE INTO leads(email,product_slug,source,status,created_at,referrer,utm_source,utm_medium,utm_campaign) VALUES(?,?,?,?,?,?,?,?,?)",
-            (email, slug, source, "new", datetime.datetime.now(datetime.timezone.utc).isoformat(), referrer, utm_source, utm_medium, utm_campaign),
+            (email, slug, source, "new", datetime.datetime.now(datetime.UTC).isoformat(), referrer, utm_source, utm_medium, utm_campaign),
         )
-        db.commit(); db.close()
+        db.commit()
+        db.close()
     except Exception:
         logger.exception("lead capture failed")
         return {"ok": False, "reason": "temporarily_unavailable"}
@@ -1460,7 +1464,7 @@ async def api_lead(request: Request, payload: dict = Body(default={})):
 @app.post("/api/contact")
 async def api_contact(request: Request, payload: dict = Body(default={})):
     """Enterprise/contact intake. Stores lead + fires Telegram alert. Fail-soft."""
-    import sqlite3 as _sql, subprocess
+    import sqlite3 as _sql
     _check_post_rate_limit(client_ip(request))
     name = str(payload.get("name") or "").strip()[:120]
     email = _validate_email((payload.get("email") or "").strip())
@@ -1478,9 +1482,10 @@ async def api_contact(request: Request, payload: dict = Body(default={})):
             referrer TEXT, utm_source TEXT, utm_medium TEXT, utm_campaign TEXT)""")
         db.execute(
             "INSERT OR IGNORE INTO leads(email,product_slug,source,notes,status,created_at,tag,referrer,utm_source,utm_medium,utm_campaign) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-            (email, slug, "contact", f"{name}: {needs}"[:500], "new", datetime.datetime.now(datetime.timezone.utc).isoformat(), "contact", referrer, utm_source, utm_medium, utm_campaign),
+            (email, slug, "contact", f"{name}: {needs}"[:500], "new", datetime.datetime.now(datetime.UTC).isoformat(), "contact", referrer, utm_source, utm_medium, utm_campaign),
         )
-        db.commit(); db.close()
+        db.commit()
+        db.close()
         msg = f"📩 New contact: {name} <{email}> product={slug} — {needs[:120]}"
         subprocess.run(['/home/scott/ai-lab/scripts/bin/telegram-alert.sh', msg], stderr=subprocess.DEVNULL)
     except Exception:
@@ -1530,7 +1535,8 @@ a{{color:#6366f1}}</style></head><body>
 @app.get("/metrics/funnel", response_class=PlainTextResponse)
 async def funnel_metrics(_: None = Depends(require_operator)):
     """Conversion funnel: events -> leads -> purchases, real data."""
-    import sqlite3 as _sql, json as _json
+    import json as _json
+    import sqlite3 as _sql
     db = _sql.connect(settings.db_path)
     events = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
     leads = db.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
@@ -1538,7 +1544,7 @@ async def funnel_metrics(_: None = Depends(require_operator)):
     rev = db.execute("SELECT COALESCE(SUM(amount_cents),0) FROM purchases").fetchone()[0]
     db.close()
     data = {"events": events, "leads": leads, "purchases": purchases,
-            "revenue_cents": rev, "ts": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+            "revenue_cents": rev, "ts": datetime.datetime.now(datetime.UTC).isoformat()}
     return _json.dumps(data)
 
 
@@ -1558,7 +1564,7 @@ async def privacy_erase(request: Request, payload: dict = Body(default={})):
             created_at TEXT NOT NULL, verified_at TEXT, completed_at TEXT)""")
         db.execute(
             "INSERT INTO privacy_requests(email,request_type,status,created_at) VALUES(?,?,?,?)",
-            (email, "erase", "pending_verification", datetime.datetime.now(datetime.timezone.utc).isoformat()),
+            (email, "erase", "pending_verification", datetime.datetime.now(datetime.UTC).isoformat()),
         )
         db.commit()
         db.close()
@@ -1570,8 +1576,8 @@ async def privacy_erase(request: Request, payload: dict = Body(default={})):
 
 @app.get("/blog/rss.xml", response_class=PlainTextResponse)
 async def blog_rss():
-    from pathlib import Path as _P
     import html as _h
+    from pathlib import Path as _P
     drafts = sorted(_P('/home/scott/ai-lab/reports/content/drafts').glob('*.md'), reverse=True)[:20] if _P('/home/scott/ai-lab/reports/content/drafts').exists() else []
     items = []
     for d in drafts:
@@ -1585,8 +1591,8 @@ async def blog_rss():
 
 @app.get("/blog", response_class=HTMLResponse)
 async def blog_index():
-    from pathlib import Path as _P
     import html as _h
+    from pathlib import Path as _P
     drafts = sorted(_P('/home/scott/ai-lab/reports/content/drafts').glob('*.md'), reverse=True) if _P('/home/scott/ai-lab/reports/content/drafts').exists() else []
     items = []
     for d in drafts[:30]:
@@ -1612,8 +1618,9 @@ h1{{font-size:2rem}} a{{color:#6366f1}} li{{margin:.5rem 0}}</style></head><body
 
 @app.get("/blog/{slug}", response_class=HTMLResponse)
 async def blog_post(slug: str):
+    import html as _h
+    import re as _re
     from pathlib import Path as _P
-    import html as _h, re as _re
     if not _re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}", slug) or ".." in slug:
         raise HTTPException(status_code=404, detail="Not found")
     p = _P('/home/scott/ai-lab/reports/content/drafts') / f"{slug}.md"
@@ -1770,12 +1777,12 @@ async def public_status():
         "products_live": recent,
         "trust": ["UFW default-deny", "LiteLLM loopback", "Cloudflare tunnel",
                   "SOC2-aligned controls", "99.5% SLA on bonded tiers"],
-        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
     }
 
 
 @app.get("/api/analytics")
-async def analytics(x_api_key: Optional[str] = Header(None)):
+async def analytics(x_api_key: str | None = Header(None)):
     if not settings.api_key or x_api_key != settings.api_key:
         raise HTTPException(status_code=403, detail="Forbidden")
     conn = _sa_sqlite.connect(str(settings.db_path))
@@ -1849,7 +1856,7 @@ async def subscribe(payload: SubscribeCreate, request: Request):
 # ── Admin / internal reads ─────────────────────────────────────────────────────
 
 @app.get("/api/leads")
-async def list_leads(x_api_key: Optional[str] = Header(None)):
+async def list_leads(x_api_key: str | None = Header(None)):
     if not settings.api_key or x_api_key != settings.api_key:
         raise HTTPException(status_code=403, detail="Forbidden")
     rows = store.list_leads(settings.db_path)
@@ -1926,6 +1933,7 @@ h1{{font-size:2rem}}a{{color:#6366f1}}p,li{{color:#d4d4d8}}</style></head><body>
 <h1>{_h.escape(title)}</h1><p>{_h.escape(body)}</p>
 <p><a href='/pricing'>See all bundles & pricing</a> · <a href='/blog'>Read the blog</a></p>
 <p><a href='/'>Home</a></p></body></html>"""
+    return HTMLResponse(html)
 
 
 # ── Purchase redirect (the money path) ─────────────────────────────────────────
@@ -1976,7 +1984,7 @@ async def status_json():
     try:
         products = store.list_products(settings.db_path)
         return {"status": "ok", "products": len(products),
-                "ts": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+                "ts": datetime.datetime.now(datetime.UTC).isoformat()}
     except Exception as e:
         return {"status": "degraded", "error": str(e)}
 

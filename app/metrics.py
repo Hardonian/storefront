@@ -1,8 +1,7 @@
 """Shared Prometheus metrics for Storefront."""
-from prometheus_client import Counter, Histogram, Gauge, Info
+from prometheus_client import Counter, Gauge, Histogram, Info
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
 
 REQUEST_COUNT = Counter(
     "http_requests_total",
@@ -53,6 +52,11 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
             except Exception:
                 REQUEST_COUNT.labels(service=self.service_name, method=method, endpoint=endpoint, status="500").inc()
                 raise
-        REQUEST_COUNT.labels(service=self.service_name, method=method, endpoint=endpoint, status=str(response.status_code)).inc()
+        REQUEST_COUNT.labels(
+            service=self.service_name,
+            method=method,
+            endpoint=endpoint,
+            status=str(response.status_code),
+        ).inc()
         REQUEST_IN_PROGRESS.labels(service=self.service_name, method=method, endpoint=endpoint).dec()
         return response

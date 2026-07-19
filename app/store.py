@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import sqlite3
-import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from contextlib import contextmanager
 
 DEFAULT_DB_PATH = Path("/home/scott/ai-lab/revenue-os/revenue-os.db")
 

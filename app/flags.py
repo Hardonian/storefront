@@ -25,13 +25,13 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 DEFAULT_FLAG_PATH = Path("/home/scott/ai-workspace/repos/storefront/flags.json")
 
 # Canonical flag definitions: name -> default.
 # `ab` flags carry `variants` for server-side A/B.
-FLAG_SCHEMA: Dict[str, Dict[str, Any]] = {
+FLAG_SCHEMA: dict[str, dict[str, Any]] = {
     "newsletter_enabled": {"default": True, "type": "bool",
                            "desc": "Show the newsletter capture bar on the catalog."},
     "trust_bar_enabled": {"default": True, "type": "bool",
@@ -55,7 +55,7 @@ def _ensure_flag_file(path: Path) -> None:
         path.write_text(json.dumps({"flags": {}}, indent=2), encoding="utf-8")
 
 
-def load_flags(path: Path = DEFAULT_FLAG_PATH) -> Dict[str, Any]:
+def load_flags(path: Path = DEFAULT_FLAG_PATH) -> dict[str, Any]:
     _ensure_flag_file(path)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -69,7 +69,7 @@ def load_flags(path: Path = DEFAULT_FLAG_PATH) -> Dict[str, Any]:
     return flags
 
 
-def save_flags(flags: Dict[str, Any], path: Path = DEFAULT_FLAG_PATH) -> None:
+def save_flags(flags: dict[str, Any], path: Path = DEFAULT_FLAG_PATH) -> None:
     _ensure_flag_file(path)
     path.write_text(json.dumps({"flags": flags, "updated_at": time.time()}, indent=2),
                     encoding="utf-8")
@@ -120,7 +120,7 @@ def _experiment_path(path: Path) -> Path:
     return path.parent / "experiment.json"
 
 
-def _active_experiment(path: Path) -> Optional[Dict[str, Any]]:
+def _active_experiment(path: Path) -> dict[str, Any] | None:
     ep = _experiment_path(path)
     if not ep.exists():
         return None
@@ -130,8 +130,8 @@ def _active_experiment(path: Path) -> Optional[Dict[str, Any]]:
         return None
 
 
-def start_experiment(flag: str, force_winner: Optional[str] = None,
-                     path: Path = DEFAULT_FLAG_PATH) -> Dict[str, Any]:
+def start_experiment(flag: str, force_winner: str | None = None,
+                     path: Path = DEFAULT_FLAG_PATH) -> dict[str, Any]:
     """Begin an A/B experiment on an `ab` flag.
 
     force_winner (e.g. "B") ends the test immediately and pins that variant for

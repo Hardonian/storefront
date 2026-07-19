@@ -27,7 +27,6 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Dict
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -41,8 +40,8 @@ _LOG = logging.getLogger("hardonia.observability")
 class _Counters:
     total: int = 0
     errors: int = 0
-    by_status: Dict[int, int] = field(default_factory=dict)
-    by_path: Dict[str, int] = field(default_factory=dict)
+    by_status: dict[int, int] = field(default_factory=dict)
+    by_path: dict[str, int] = field(default_factory=dict)
     latency_ms_sum: float = 0.0
 
 
@@ -69,10 +68,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         # Respect a request_id already set by an earlier middleware (e.g. storefront's
         # request_context) so we never overwrite an existing correlation id.
         existing = getattr(request.state, "request_id", None)
-        if existing:
-            rid = existing
-        else:
-            rid = request.headers.get(REQUEST_ID_HEADER) or uuid.uuid4().hex
+        rid = existing or (request.headers.get(REQUEST_ID_HEADER) or uuid.uuid4().hex)
         request.state.request_id = rid
         response = await call_next(request)
         response.headers[REQUEST_ID_HEADER] = rid

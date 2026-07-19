@@ -1,9 +1,10 @@
-import os
-import time
-import hmac
 import hashlib
+import hmac
+import os
 import re
+import time
 from pathlib import Path
+
 from fastapi import HTTPException
 
 SECRET = os.environ.get('STOREFRONT_DOWNLOAD_SECRET', '')
@@ -40,7 +41,7 @@ def resolve_download(slug: str, expires: str, token: str):
     try:
         expires_at = int(expires)
     except (TypeError, ValueError):
-        raise HTTPException(status_code=403, detail='Invalid or expired download link')
+        raise HTTPException(status_code=403, detail='Invalid or expired download link') from None
     if not verify(slug, expires_at, token):
         raise HTTPException(status_code=403, detail='Invalid or expired download link')
     base = BASE_DIR.resolve()

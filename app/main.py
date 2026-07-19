@@ -370,7 +370,7 @@ async def metrics(_: None = Depends(require_operator)):
 # ── AU support bot proxy (Auth/Access Unit) ────────────────────────────────────
 # Proxies customer questions to the local AU bot intake (au-bot-server.service :8070).
 # Graceful fallback: if the bot is down, return a GitHub-issue link (never hang).
-AU_BOT_URL = os.getenv("AU_BOT_URL", "http://127.0.0.1:8070/au/ask")
+AU_BOT_URL = os.getenv("AU_BOT_URL", "http://127.0.0.1:8071/au/ask")
 
 AU_WIDGET_JS = r"""
 (function(){
@@ -421,23 +421,53 @@ async def api_ask(req: AskRequest, request: Request):
     if not req.query or not req.query.strip():
         raise HTTPException(status_code=400, detail="query required")
     _check_post_rate_limit(client_ip(request))
-    try:
-        with httpx.Client(timeout=8.0) as client:
-            r = client.post(AU_BOT_URL, json={"query": req.query, "history": req.history or []})
-        if r.status_code == 200:
+    payload = {"query": req.query, "history": req.history or []}
+    timeout = httpx.Timeout(connect=2.0, read=12.0, write=2.0, pool=2.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for url in (
+            os.getenv("AU_BOT_URL", "http://127.0.0.1:8071/au/ask"),
+            "http://127.0.0.1:8070/au/ask",
+        ):
+            try:
+                r = await client.post(url, json=payload)
+            except Exception:
+                continue
+            if r.status_code != 200:
+                continue
             data = r.json()
+            # Record conversion event for KB/support funnel analysis
+            _record_event(
+                "support_ask",
+                page=request.url.path,
+                product_slug=None,
+                checkout_url=None,
+                session_id=_session_id(request),
+                referrer=request.headers.get("referer"),
+            )
             if "escalation" in data:
-                # bot escalated (guardrail / low confidence) — surface the GitHub issue link
+                _record_event(
+                    "support_escalate",
+                    page=request.url.path,
+                    product_slug=None,
+                    checkout_url=None,
+                    session_id=_session_id(request),
+                    referrer=request.headers.get("referer"),
+                )
                 return JSONResponse({
                     "answer": None,
                     "escalated": True,
                     "issue": data.get("issue"),
                     "message": "This needs a human; we've opened a support ticket. We'll reply within 1 business day.",
                 })
+            _record_event(
+                "support_resolved",
+                page=request.url.path,
+                product_slug=None,
+                checkout_url=None,
+                session_id=_session_id(request),
+                referrer=request.headers.get("referer"),
+            )
             return JSONResponse({"answer": data.get("answer"), "escalated": False})
-    except Exception:
-        pass
-    # Bot unreachable → graceful fallback (do not 500 the customer)
     return JSONResponse({
         "answer": None,
         "escalated": True,
@@ -449,13 +479,18 @@ async def api_ask(req: AskRequest, request: Request):
 
 @app.get("/api/ask/health")
 async def api_ask_health():
-    try:
-        with httpx.Client(timeout=3.0) as client:
-            r = client.get("http://127.0.0.1:8070/au/health")
+    timeout = httpx.Timeout(connect=2.0, read=4.0, write=1.0, pool=1.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for url in (
+            "http://127.0.0.1:8071/au/health",
+            "http://127.0.0.1:8070/au/health",
+        ):
+            try:
+                r = await client.get(url)
+            except Exception:
+                continue
             if r.status_code == 200:
                 return {"au_bot": "up", **r.json()}
-    except Exception:
-        pass
     return {"au_bot": "down"}
 
 
@@ -489,6 +524,8 @@ async def sitemap_xml():
         (f"{base}/pricing", "weekly", None),
         (f"{base}/blog", "daily", None),
         (f"{base}/tools/gpu-cost-calculator", "monthly", None),
+        (f"{base}/lead", "weekly", None),
+        (f"{base}/unsubscribe", "yearly", None),
     ]
     for topic in ("comfyui-alternative", "n8n-self-hosted", "private-inference", "local-ai-stack"):
         urls.append((f"{base}/compare/{topic}", "monthly", None))
@@ -885,6 +922,105 @@ async def fulfillment_claim(request: Request):
         return claim_error(502, "fulfillment_unavailable", "Fulfillment service is temporarily unavailable")
 
 
+@app.get("/unsubscribe", response_class=HTMLResponse)
+async def unsubscribe_page(request: Request, email: str = ""):
+    """CASL/GDPR opt-out. One click removes the lead from nurture."""
+    html = """<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Unsubscribe — Hardonia</title>
+<style>body{font-family:system-ui,sans-serif;margin:0;background:#0c1118;color:#e8eef5}
+.wrap{max-width:520px;margin:0 auto;padding:64px 20px;text-align:center}
+h1{font-size:1.6rem}.ok{color:#2dd4bf}.btn{margin-top:20px;padding:12px 24px;border:0;border-radius:8px;background:#2dd4bf;color:#062a26;font-weight:700;cursor:pointer}
+input{padding:12px;border-radius:8px;border:1px solid #2a3a4d;background:#0c1118;color:#e8eef5;width:100%;font-size:1rem}
+</style></head><body><div class=wrap>
+<h1>Unsubscribe</h1>
+<p>Enter your email to stop all Hardonia Automated Systems emails. This is immediate and permanent.</p>
+<form id=f onsubmit="return unsub(event)">
+<input id=email value="__EMAIL__" required placeholder=you@firm.ca>
+<button class=btn type=submit>Unsubscribe</button></form>
+<p id=out></p></div>
+<script>
+async function unsub(e){e.preventDefault();
+ const r=await fetch('/api/unsubscribe',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value})});
+ const j=await r.json();
+ document.getElementById('out').innerHTML = j.ok ? '<span class=ok>✓ You are unsubscribed. Sorry to see you go.</span>' : 'Error: '+j.reason;
+ return false;}
+</script></body></html>"""
+    html = html.replace("__EMAIL__", email or "")
+    return HTMLResponse(html)
+
+
+@app.post("/api/unsubscribe")
+async def api_unsubscribe(request: Request, payload: dict = Body(default={})):
+    email = (payload.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        return {"ok": False, "reason": "invalid_email"}
+    try:
+        import sqlite3 as _sql
+        db = _sql.connect(settings.db_path)
+        db.execute("UPDATE leads SET status='unsubscribed', notes='opt-out via /unsubscribe' WHERE email=?", (email,))
+        db.commit(); db.close()
+        return {"ok": True}
+    except Exception:
+        logger.exception("unsubscribe failed")
+        return {"ok": False, "reason": "temporarily_unavailable"}
+
+
+@app.get("/lead", response_class=HTMLResponse)
+async def lead_page(request: Request):
+    """Free Sovereign AI Readiness Score + capture."""
+    _record_event("lead_page_view", page=request.url.path, product_slug=None,
+                  checkout_url=None, session_id=_session_id(request),
+                  referrer=request.headers.get("referer"))
+    html = """<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Free Sovereign AI Readiness Score — Hardonia</title>
+<meta name=description content="Run a free local sovereignty audit. Score your AI drafting setup in 60 seconds. No cloud, no email required to see your score.">
+<style>
+body{font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;background:#0c1118;color:#e8eef5}
+.wrap{max-width:680px;margin:0 auto;padding:48px 20px}
+h1{font-size:2rem;margin:0 0 8px}
+p.lead{color:#9fb3c8;font-size:1.1rem}
+.card{background:#141c26;border:1px solid #233; border-radius:12px;padding:28px;margin-top:24px}
+label{display:block;margin:14px 0 6px;font-weight:600}
+input,select{width:100%;padding:12px;border-radius:8px;border:1px solid #2a3a4d;background:#0c1118;color:#e8eef5;font-size:1rem}
+button{margin-top:20px;width:100%;padding:14px;border:0;border-radius:8px;background:#2dd4bf;color:#062a26;font-size:1.05rem;font-weight:700;cursor:pointer}
+button:hover{background:#14b8a6}
+.note{color:#7d92a6;font-size:.85rem;margin-top:14px}
+pre{background:#0c1118;border:1px solid #233;border-radius:8px;padding:14px;overflow:auto;font-size:.8rem}
+</style></head><body><div class=wrap>
+<h1>Free Sovereign AI Readiness Score</h1>
+<p class=lead>See how much of your AI drafting leaks to third-party clouds. 5 questions, 60 seconds, 100% local.</p>
+<div class=card>
+<form id=f onsubmit="return submitLead(event)">
+<label>Your email (for your free review)</label>
+<input type=email id=email required placeholder=you@clinic.ca>
+<label>Which vertical are you in?</label>
+<select id=slug><option value=sentinel-note>Clinical</option><option value=ops-draft>Legal / Municipal</option><option value=ledger-draft>Finance</option><option value=hr-draft>HR / Policy</option><option value=sovereign-supercharger>All of the above</option></select>
+<label>How did you find us?</label>
+<input id=source placeholder="search, referral, github...">
+<button type=submit>Get my free score</button>
+<p class=note>We run a local script and email you a 15-min sovereignty review offer. No spam. Unsubscribe anytime.</p>
+<p style="margin-top:10px"><a href="/landing-assets/sovereign_readiness_score.py" download style="color:#2dd4bf">⬇ Download the Readiness Score script (free, runs 100% offline)</a></p>
+</form>
+<pre id=out></pre>
+</div></div>
+<script>
+async function submitLead(e){
+ e.preventDefault();
+ const email=document.getElementById('email').value;
+ const slug=document.getElementById('slug').value;
+ const source=document.getElementById('source').value||'lead-page';
+ const r=await fetch('/api/lead',{method:'POST',headers:{'content-type':'application/json'},
+   body:JSON.stringify({email,slug,source,utm_campaign:'sovereign-readiness'})});
+ const j=await r.json();
+ document.getElementById('out').textContent=JSON.stringify(j,null,2);
+ return false;
+}
+</script></body></html>"""
+    return HTMLResponse(html)
+
+
 @app.get("/p/{slug}", response_class=HTMLResponse)
 async def product_page(slug: str, request: Request):
     product = store.get_product(slug, settings.db_path)
@@ -1087,6 +1223,31 @@ footer a{{color:var(--accent);text-decoration:none}}
     else:
         cta_html += f'<a class="cta" href="/p/{slug}">Contact / Details</a>'
     html += f'<div class="cta-row">{cta_html}</div>'
+    # Managed install add-on (flat $149/mo, cancel anytime, no new infra).
+    if slug in ("sentinel-note", "hardonia-enterpriser"):
+        html += (
+            '<div class="cta-row">'
+            '<a class="cta enterprise" href="https://buy.stripe.com/price_1TuxCWC651G6xmqG3BblR6Jp" '
+            'target="_blank" rel="noopener" data-slug="managed-install">'
+            '🛠️ Managed install — $149/mo (we set it up, cancel anytime) →</a></div>'
+        )
+    # Cost-free internal cross-sell: link sibling local-first AI products.
+    _RELATED = {
+        "sentinel-note": ("Sovereign Supercharger", "sovereign-supercharger", "All 5 suites (12 pipelines) + IP protection + sovereignty audit engine"),
+        "ops-draft": ("Sovereign Supercharger", "sovereign-supercharger", "All 5 suites (12 pipelines) + IP protection + sovereignty audit engine"),
+        "ledger-draft": ("Sovereign Supercharger", "sovereign-supercharger", "All 5 suites (12 pipelines) + IP protection + sovereignty audit engine"),
+        "hr-draft": ("Sovereign Supercharger", "sovereign-supercharger", "All 5 suites (12 pipelines) + IP protection + sovereignty audit engine"),
+        "hardonia-enterpriser": ("Sovereign Supercharger", "sovereign-supercharger", "Add IP pack + sovereignty audit engine + 3mo managed install"),
+        "sovereign-supercharger": ("Sentinel Note", "sentinel-note", "Local clinical SOAP-note drafting for clinics"),
+    }
+    if slug in _RELATED:
+        rname, rslug, rdesc = _RELATED[slug]
+        html += (
+            f'<div class="related"><h2>Related local-first product</h2>'
+            f'<div class="related-card"><b><a href="/p/{rslug}">{rname}</a></b>'
+            f'<p class="muted">{rdesc}</p>'
+            f'<a class="cta secondary" href="/p/{rslug}">View {rname} →</a></div></div>'
+        )
     html += """<footer>
 AI Automated Systems · <a href="/legal/terms-of-service">Terms</a> · <a href="/legal/privacy-policy">Privacy</a> · <a href="/legal/refund-policy">Refunds</a> · <a href="/legal/consent">Cookies</a>
 </footer></div>
@@ -1275,14 +1436,20 @@ async def api_lead(request: Request, payload: dict = Body(default={})):
     _check_post_rate_limit(client_ip(request))
     slug = str(payload.get("product_slug") or "")[:120]
     source = str(payload.get("source") or "unknown")[:80]
+    referrer = str(request.headers.get("referer") or payload.get("referrer") or "")[:255]
+    utm_source = str(request.query_params.get("utm_source") or payload.get("utm_source") or "")[:80]
+    utm_medium = str(request.query_params.get("utm_medium") or payload.get("utm_medium") or "")[:80]
+    utm_campaign = str(request.query_params.get("utm_campaign") or payload.get("utm_campaign") or "")[:80]
     try:
         db = _sql.connect(settings.db_path)
         db.execute("""CREATE TABLE IF NOT EXISTS leads(
             id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, product_slug TEXT,
             source TEXT, notes TEXT, status TEXT DEFAULT 'new', created_at TEXT,
-            tag TEXT)""")
-        db.execute("INSERT OR IGNORE INTO leads(email,product_slug,source,status,created_at) VALUES(?,?,?,?,?)",
-                   (email, slug, source, "new", datetime.datetime.now(datetime.timezone.utc).isoformat()))
+            tag TEXT, referrer TEXT, utm_source TEXT, utm_medium TEXT, utm_campaign TEXT)""")
+        db.execute(
+            "INSERT OR IGNORE INTO leads(email,product_slug,source,status,created_at,referrer,utm_source,utm_medium,utm_campaign) VALUES(?,?,?,?,?,?,?,?,?)",
+            (email, slug, source, "new", datetime.datetime.now(datetime.timezone.utc).isoformat(), referrer, utm_source, utm_medium, utm_campaign),
+        )
         db.commit(); db.close()
     except Exception:
         logger.exception("lead capture failed")
@@ -1299,13 +1466,20 @@ async def api_contact(request: Request, payload: dict = Body(default={})):
     email = _validate_email((payload.get("email") or "").strip())
     needs = str(payload.get("needs") or "").strip()[:2000]
     slug = str(payload.get("product") or "")[:120]
+    referrer = str(request.headers.get("referer") or payload.get("referrer") or "")[:255]
+    utm_source = str(request.query_params.get("utm_source") or payload.get("utm_source") or "")[:80]
+    utm_medium = str(request.query_params.get("utm_medium") or payload.get("utm_medium") or "")[:80]
+    utm_campaign = str(request.query_params.get("utm_campaign") or payload.get("utm_campaign") or "")[:80]
     try:
         db = _sql.connect(settings.db_path)
         db.execute("""CREATE TABLE IF NOT EXISTS leads(
             id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, product_slug TEXT,
-            source TEXT, notes TEXT, status TEXT DEFAULT 'new', created_at TEXT, tag TEXT)""")
-        db.execute("INSERT OR IGNORE INTO leads(email,product_slug,source,notes,status,created_at) VALUES(?,?,?,?,?,?)",
-                   (email, slug, "contact", f"{name}: {needs}"[:500], "new", datetime.datetime.now(datetime.timezone.utc).isoformat()))
+            source TEXT, notes TEXT, status TEXT DEFAULT 'new', created_at TEXT, tag TEXT,
+            referrer TEXT, utm_source TEXT, utm_medium TEXT, utm_campaign TEXT)""")
+        db.execute(
+            "INSERT OR IGNORE INTO leads(email,product_slug,source,notes,status,created_at,tag,referrer,utm_source,utm_medium,utm_campaign) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (email, slug, "contact", f"{name}: {needs}"[:500], "new", datetime.datetime.now(datetime.timezone.utc).isoformat(), "contact", referrer, utm_source, utm_medium, utm_campaign),
+        )
         db.commit(); db.close()
         msg = f"📩 New contact: {name} <{email}> product={slug} — {needs[:120]}"
         subprocess.run(['/home/scott/ai-lab/scripts/bin/telegram-alert.sh', msg], stderr=subprocess.DEVNULL)
@@ -1470,6 +1644,20 @@ async def blog_post(slug: str):
         elif s:
             out.append(f"<p>{_h.escape(s)}</p>")
     body = "\n".join(out)
+    product_footer = """
+<hr style="margin:2.5rem 0;border-color:#222">
+<h3>Local-first AI drafting — built for regulated work</h3>
+<ul>
+<li><a href="/p/sentinel-note">Sentinel Note</a> — clinical SOAP/referral drafting ($297)</li>
+<li><a href="/p/ops-draft">OpsDraft</a> — legal/municipal drafting ($197)</li>
+<li><a href="/p/ledger-draft">LedgerDraft</a> — finance drafting ($197)</li>
+<li><a href="/p/hr-draft">HRDraft</a> — HR/policy drafting ($197)</li>
+<li><a href="/p/hardonia-enterpriser">Hardonia Enterpriser</a> — all 4 suites ($497)</li>
+<li><a href="/p/sovereign-supercharger">Sovereign Supercharger</a> — everything + IP pack + audit ($1497)</li>
+<li><a href="/p/sovereign-ai-audit">Sovereign AI Audit</a> — $297 expert review (credited)</li>
+</ul>
+<p><a href="/lead">🏠 Run the free Sovereign AI Readiness Score →</a></p>
+"""
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'><title>{title_html} — AI Automated Systems</title>
 <meta name='description' content='{description_html}'><link rel='canonical' href='{canonical}'>
@@ -1479,6 +1667,7 @@ async def blog_post(slug: str):
 <style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:800px;margin:6vh auto;padding:0 20px;line-height:1.7}}
 h1,h2{{color:#fff}} a{{color:#6366f1}} p,li{{color:#d4d4d8}}</style></head><body>
 {body}
+{product_footer}
 <p class='muted'><a href='/blog'>← All posts</a></p>
 </body></html>"""
     return html

@@ -6,6 +6,7 @@ Run:  ./run.sh  (or uvicorn app.main:app --host 0.0.0.0 --port 8020)
 from __future__ import annotations
 
 import datetime
+import html as _html
 import json
 import logging
 import os
@@ -349,6 +350,7 @@ async def landing_html(slug: str):
 
 # Serve canonical product assets at /product-assets/
 PRODUCT_ASSETS = Path('/home/scott/hardonia.store/products')
+PROOF_PUBLIC = Path('/home/scott/ai-lab/reports/proof-score/latest.public.json')
 if PRODUCT_ASSETS.exists():
     app.mount(
         '/product-assets',
@@ -362,6 +364,42 @@ if PRODUCT_ASSETS.exists():
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "storefront", "version": app.version}
+
+
+@app.get("/api/proof-score")
+async def proof_score_api():
+    """Public aggregate Proof Score; never exposes private evidence or secrets."""
+    if not PROOF_PUBLIC.exists():
+        raise HTTPException(status_code=503, detail="Proof Score is being refreshed")
+    try:
+        data = json.loads(PROOF_PUBLIC.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raise HTTPException(status_code=503, detail="Proof Score is temporarily unavailable")
+    return JSONResponse(data, headers={"Cache-Control": "public, max-age=300"})
+
+
+@app.get("/proof-score", response_class=HTMLResponse)
+async def proof_score_page():
+    """Public Proof Score landing surface backed by the latest redacted report."""
+    if not PROOF_PUBLIC.exists():
+        return HTMLResponse("<h1>Proof Score refreshing</h1><p>Try again shortly.</p>", status_code=503)
+    try:
+        data = json.loads(PROOF_PUBLIC.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return HTMLResponse("<h1>Proof Score temporarily unavailable</h1>", status_code=503)
+    esc = lambda value: _html.escape(str(value))
+    scores = data.get("sub_scores", {})
+    benchmark = data.get("benchmark", {})
+    cards = "".join(f"<div class='card'><b>{esc(k.title())}</b><strong>{esc(v)}/100</strong></div>" for k, v in scores.items())
+    style = """body{margin:0;background:#090b10;color:#e8edf5;font:16px system-ui;line-height:1.55}main{max-width:960px;margin:auto;padding:56px 22px}.eyebrow{color:#7dd3fc;letter-spacing:.12em;text-transform:uppercase;font-size:12px;font-weight:700}h1{font-size:clamp(38px,7vw,72px);line-height:1.02;margin:16px 0}.lead{font-size:20px;color:#aab6c8;max-width:700px}.score{display:flex;gap:28px;align-items:center;flex-wrap:wrap;margin:38px 0}.big{font-size:76px;font-weight:800;color:#86efac;line-height:1}.grade{font-size:21px;color:#c4b5fd}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.card{padding:18px;border:1px solid #273244;border-radius:14px;background:#111722}.card b,.card strong{display:block}.card b{color:#9aa9bd;font-size:13px}.card strong{font-size:25px;margin-top:6px}.cta{display:inline-block;margin-top:30px;background:#38bdf8;color:#04111c;text-decoration:none;font-weight:800;padding:13px 18px;border-radius:10px}.muted{color:#8290a3;font-size:13px}"""
+    body = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Sovereign AI Proof Score | The Platform</title><meta name='description' content='A locally generated, tamper-evident proof of private AI operational readiness'>
+<style>{style}</style></head><body><main>
+<div class='eyebrow'>The Platform Proof Layer</div><h1>Private AI you can prove.</h1><p class='lead'>A local-first operational score generated from real service, GPU, resilience, autonomy, and catalog checks. No prompts, customer records, credentials, or private infrastructure details are published.</p>
+<section class='score'><div class='big'>{esc(data.get('overall_score'))}/100</div><div><div class='grade'>{esc(data.get('grade'))}</div><div class='muted'>Verified {esc(data.get('generated_at'))} · key {esc(data.get('key_id'))}</div></div></section>
+<div class='grid'>{cards}</div><p class='muted'>Benchmark fixture: {esc(benchmark.get('passed'))}/{esc(benchmark.get('total'))} synthetic policy/structure cases passed. This is an operational proof signal, not a legal certification or a claim of model quality.</p>
+<a class='cta' href='/p/sovereign-ops-score'>Run the full Sovereign AI Ops Score</a></main></body></html>"""
+    return HTMLResponse(body, headers={"Cache-Control": "public, max-age=300"})
 
 
 @app.get("/metrics")
@@ -527,6 +565,7 @@ async def sitemap_xml():
         (f"{base}/pricing", "weekly", None),
         (f"{base}/blog", "daily", None),
         (f"{base}/tools/gpu-cost-calculator", "monthly", None),
+        (f"{base}/proof-score", "hourly", None),
         (f"{base}/lead", "weekly", None),
         (f"{base}/unsubscribe", "yearly", None),
     ]
@@ -537,7 +576,7 @@ async def sitemap_xml():
         for draft in sorted(drafts_dir.glob('*.md'), reverse=True)[:100]:
             urls.append((f"{base}/blog/{draft.stem}", "monthly", None))
     for p in products:
-        if p.get("status") == "ready":
+        if p.get("status") in {"ready", "early-access"}:
             image_url = None
             ip = Path(p.get("image_path") or "")
             if ip.exists():

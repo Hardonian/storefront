@@ -351,6 +351,7 @@ async def landing_html(slug: str):
 # Serve canonical product assets at /product-assets/
 PRODUCT_ASSETS = Path('/home/scott/hardonia.store/products')
 PROOF_PUBLIC = Path('/home/scott/ai-lab/reports/proof-score/latest.public.json')
+NEXT20_DIR = Path('/home/scott/ai-lab/reports/proof-score/next20')
 if PRODUCT_ASSETS.exists():
     app.mount(
         '/product-assets',
@@ -391,7 +392,7 @@ async def proof_score_page():
     scores = data.get("sub_scores", {})
     benchmark = data.get("benchmark", {})
     cards = "".join(f"<div class='card'><b>{esc(k.title())}</b><strong>{esc(v)}/100</strong></div>" for k, v in scores.items())
-    style = """body{margin:0;background:#090b10;color:#e8edf5;font:16px system-ui;line-height:1.55}main{max-width:960px;margin:auto;padding:56px 22px}.eyebrow{color:#7dd3fc;letter-spacing:.12em;text-transform:uppercase;font-size:12px;font-weight:700}h1{font-size:clamp(38px,7vw,72px);line-height:1.02;margin:16px 0}.lead{font-size:20px;color:#aab6c8;max-width:700px}.score{display:flex;gap:28px;align-items:center;flex-wrap:wrap;margin:38px 0}.big{font-size:76px;font-weight:800;color:#86efac;line-height:1}.grade{font-size:21px;color:#c4b5fd}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.card{padding:18px;border:1px solid #273244;border-radius:14px;background:#111722}.card b,.card strong{display:block}.card b{color:#9aa9bd;font-size:13px}.card strong{font-size:25px;margin-top:6px}.cta{display:inline-block;margin-top:30px;background:#38bdf8;color:#04111c;text-decoration:none;font-weight:800;padding:13px 18px;border-radius:10px}.muted{color:#8290a3;font-size:13px}"""
+    style = """body{margin:0;background:#f5f1e8;color:#1f2933;font:16px system-ui;line-height:1.55;background-image:radial-gradient(circle at 10% 0%,rgba(15,118,110,.08),transparent 32rem)}main{max-width:960px;margin:auto;padding:56px 22px}.eyebrow{color:#0f766e;letter-spacing:.12em;text-transform:uppercase;font-size:12px;font-weight:700}h1{font-size:clamp(38px,7vw,72px);line-height:1.02;margin:16px 0}.lead{font-size:20px;color:#52606d;max-width:700px}.score{display:flex;gap:28px;align-items:center;flex-wrap:wrap;margin:38px 0}.big{font-size:76px;font-weight:800;color:#b45309;line-height:1}.grade{font-size:21px;color:#0f766e}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.card{padding:18px;border:1px solid #d8d3ca;border-radius:14px;background:#fffdf8;box-shadow:0 12px 30px rgba(31,41,51,.06)}.card b,.card strong{display:block}.card b{color:#66717d;font-size:13px}.card strong{font-size:25px;margin-top:6px}.cta{display:inline-block;margin-top:30px;background:#0f766e;color:#fff;text-decoration:none;font-weight:800;padding:13px 18px;border-radius:10px}.muted{color:#66717d;font-size:13px}"""
     body = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Sovereign AI Proof Score | The Platform</title><meta name='description' content='A locally generated, tamper-evident proof of private AI operational readiness'>
 <style>{style}</style></head><body><main>
@@ -400,6 +401,22 @@ async def proof_score_page():
 <div class='grid'>{cards}</div><p class='muted'>Benchmark fixture: {esc(benchmark.get('passed'))}/{esc(benchmark.get('total'))} synthetic policy/structure cases passed. This is an operational proof signal, not a legal certification or a claim of model quality.</p>
 <a class='cta' href='/p/sovereign-ops-score'>Run the full Sovereign AI Ops Score</a></main></body></html>"""
     return HTMLResponse(body, headers={"Cache-Control": "public, max-age=300"})
+
+
+@app.get("/proof-benchmark", response_class=HTMLResponse)
+async def proof_benchmark_page():
+    page = NEXT20_DIR / 'public-benchmark.html'
+    if not page.exists():
+        raise HTTPException(status_code=503, detail='Benchmark page is being generated')
+    return HTMLResponse(page.read_text(encoding='utf-8'), headers={"Cache-Control": "public, max-age=300"})
+
+
+@app.get("/proof-badge.svg")
+async def proof_badge():
+    badge = NEXT20_DIR / 'proof-badge.svg'
+    if not badge.exists():
+        raise HTTPException(status_code=503, detail='Proof badge is being generated')
+    return Response(badge.read_text(encoding='utf-8'), media_type='image/svg+xml', headers={"Cache-Control": "public, max-age=300"})
 
 
 @app.get("/metrics")
@@ -566,6 +583,8 @@ async def sitemap_xml():
         (f"{base}/blog", "daily", None),
         (f"{base}/tools/gpu-cost-calculator", "monthly", None),
         (f"{base}/proof-score", "hourly", None),
+        (f"{base}/proof-benchmark", "daily", None),
+        (f"{base}/proof-badge.svg", "daily", None),
         (f"{base}/lead", "weekly", None),
         (f"{base}/unsubscribe", "yearly", None),
     ]

@@ -417,13 +417,13 @@ AU_WIDGET_JS = r"""
 (function(){
   if (document.getElementById('au-widget')) return;
   var s = document.createElement('style');
-  s.textContent = '.au-fab{position:fixed;bottom:18px;right:18px;z-index:9999;background:#6366f1;color:#fff;border:0;border-radius:50px;padding:12px 18px;font:600 14px system-ui;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.35)}'
-    + '.au-box{position:fixed;bottom:74px;right:18px;z-index:9999;width:340px;max-width:92vw;background:#15151a;color:#e4e4e7;border:1px solid #2a2a32;border-radius:14px;overflow:hidden;font:14px system-ui}'
+  s.textContent = '.au-fab{position:fixed;bottom:18px;right:18px;z-index:9999;background:#0f766e;color:#fff;border:0;border-radius:50px;padding:12px 18px;font:600 14px system-ui;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.35)}'
+    + '.au-box{position:fixed;bottom:74px;right:18px;z-index:9999;width:340px;max-width:92vw;background:#fffdf8;color:#1f2933;border:1px solid #d8d3ca;border-radius:14px;overflow:hidden;font:14px system-ui}'
     + '.au-box header{background:#1f1f27;padding:10px 14px;font-weight:700;display:flex;justify-content:space-between}'
     + '.au-box .log{padding:12px;max-height:260px;overflow:auto;min-height:80px}'
-    + '.au-box .me{text-align:right;margin:6px 0}.au-box .me span{background:#6366f1;color:#fff;padding:7px 11px;border-radius:12px;display:inline-block;text-align:left}'
+    + '.au-box .me{text-align:right;margin:6px 0}.au-box .me span{background:#0f766e;color:#fff;padding:7px 11px;border-radius:12px;display:inline-block;text-align:left}'
     + '.au-box .bot{margin:6px 0}.au-box .bot span{background:#23232b;padding:7px 11px;border-radius:12px;display:inline-block;white-space:pre-wrap}'
-    + '.au-box input{width:100%;border:0;border-top:1px solid #2a2a32;background:#15151a;color:#e4e4e7;padding:11px 14px;box-sizing:border-box;outline:none}';
+    + '.au-box input{width:100%;border:0;border-top:1px solid #d8d3ca;background:#fffdf8;color:#1f2933;padding:11px 14px;box-sizing:border-box;outline:none}';
   document.head.appendChild(s);
   var fab = document.createElement('button'); fab.className='au-fab'; fab.id='au-widget'; fab.textContent='💬 Support';
   var box = document.createElement('div'); box.className='au-box'; box.style.display='none';
@@ -1325,10 +1325,10 @@ AI Automated Systems · <a href="/legal/terms-of-service">Terms</a> · <a href="
   function setConsent(v){document.cookie='hardonia_consent='+v+';path=/;max-age=31536000;SameSite=Lax';}
   if(!document.cookie.match(/hardonia_consent=/)){
     var b=document.createElement('div');b.id='consent-bar';
-    b.style.cssText='position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#11111a;color:#e4e4e7;padding:.8rem 1rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap;border-top:1px solid #27272a;font:14px system-ui';
-    b.innerHTML='<span style="flex:1">We use first-party analytics to improve the store. No ad tracking. <a style="color:#6366f1" href="/legal/consent">Learn more</a></span>'+
-      '<button style="padding:.5rem .9rem;border:0;border-radius:8px;background:#6366f1;color:#fff;font-weight:700;cursor:pointer" onclick="window.__consent(\'accepted\')">Accept</button>'+
-      '<button class="skip" style="padding:.5rem .9rem;border:1px solid #333;border-radius:8px;background:transparent;color:#a1a1aa;cursor:pointer" onclick="window.__consent(\'declined\')">Decline</button>';
+    b.style.cssText='position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#fffdf8;color:#1f2933;padding:.8rem 1rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap;border-top:1px solid #d8d3ca;font:14px system-ui';
+    b.innerHTML='<span style="flex:1">We use first-party analytics to improve the store. No ad tracking. <a style="color:#0f766e" href="/legal/consent">Learn more</a></span>'+
+      '<button style="padding:.5rem .9rem;border:0;border-radius:8px;background:#0f766e;color:#fff;font-weight:700;cursor:pointer" onclick="window.__consent(\'accepted\')">Accept</button>'+
+      '<button class="skip" style="padding:.5rem .9rem;border:1px solid #333;border-radius:8px;background:transparent;color:#66717d;cursor:pointer" onclick="window.__consent(\'declined\')">Decline</button>';
     document.body.appendChild(b);
   }
   window.__consent=function(v){setConsent(v);var el=document.getElementById('consent-bar');if(el)el.remove();
@@ -1343,7 +1343,7 @@ AI Automated Systems · <a href="/legal/terms-of-service">Terms</a> · <a href="
   function showExit(){{
     if(fired)return;fired=true;
     var m=document.createElement('div');m.className='exit-modal show';
-    m.innerHTML='<div class=\"exit-card\"><h3>Wait — grab the free AI Ops Checklist</h3><p>Get the local AI ops checklist + weekly lab tips.</p><input id=\"exit-email\" placeholder=\"you@email.com\" type=\"email\"><button onclick=\"exitSubmit()\" style=\"padding:.6rem 1.2rem;border-radius:8px;border:0;background:#6366f1;color:#fff;font-weight:700;cursor:pointer\">Send it →</button></div>';
+    m.innerHTML='<div class=\"exit-card\"><h3>Wait — grab the free AI Ops Checklist</h3><p>Get the local AI ops checklist + weekly lab tips.</p><input id=\"exit-email\" placeholder=\"you@email.com\" type=\"email\"><button onclick=\"exitSubmit()\" style=\"padding:.6rem 1.2rem;border-radius:8px;border:0;background:#0f766e;color:#fff;font-weight:700;cursor:pointer\">Send it →</button></div>';
     document.body.appendChild(m);
   }}
   function exitSubmit(){{
@@ -1368,11 +1368,11 @@ async def product_free(slug: str, request: Request):
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Start free — {name}</title>
-<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:620px;margin:8vh auto;padding:0 20px;line-height:1.6}}
-h1{{font-size:1.9rem}} .muted{{color:#a1a1aa}} .card{{background:#1a1a1e;border:1px solid #27272a;border-radius:14px;padding:2rem}}
-input{{width:100%;padding:.8rem;margin:.5rem 0;border-radius:8px;border:1px solid #27272a;background:#0d0d0f;color:#e4e4e7;font-size:1rem}}
-button{{width:100%;padding:.9rem;border:0;border-radius:10px;background:#6366f1;color:#fff;font-weight:700;font-size:1rem;cursor:pointer;margin-top:.8rem}}
-a{{color:#6366f1}}</style></head><body><div class='card'>
+<style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:620px;margin:8vh auto;padding:0 20px;line-height:1.6}}
+h1{{font-size:1.9rem}} .muted{{color:#66717d}} .card{{background:#fffdf8;border:1px solid #d8d3ca;border-radius:14px;padding:2rem}}
+input{{width:100%;padding:.8rem;margin:.5rem 0;border-radius:8px;border:1px solid #d8d3ca;background:#f5f1e8;color:#1f2933;font-size:1rem}}
+button{{width:100%;padding:.9rem;border:0;border-radius:10px;background:#0f766e;color:#fff;font-weight:700;font-size:1rem;cursor:pointer;margin-top:.8rem}}
+a{{color:#0f766e}}</style></head><body><div class='card'>
 <h1>🎁 Try <b>{name}</b> free</h1>
 <p class='muted'>No card required. We'll send your free starter pack + a 20% upgrade code to your inbox. Upgrade to Pro anytime you need more.</p>
 <form id='f'><input type='email' id='email' placeholder='you@company.com' required>
@@ -1402,11 +1402,11 @@ async def contact_page(request: Request):
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Enterprise — AI Automated Systems</title>
-<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:620px;margin:8vh auto;padding:0 20px;line-height:1.6}}
-h1{{font-size:1.9rem}} .muted{{color:#a1a1aa}} .card{{background:#1a1a1e;border:1px solid #27272a;border-radius:14px;padding:2rem}}
-input,textarea{{width:100%;padding:.8rem;margin:.5rem 0;border-radius:8px;border:1px solid #27272a;background:#0d0d0f;color:#e4e4e7;font-size:1rem}}
+<style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:620px;margin:8vh auto;padding:0 20px;line-height:1.6}}
+h1{{font-size:1.9rem}} .muted{{color:#66717d}} .card{{background:#fffdf8;border:1px solid #d8d3ca;border-radius:14px;padding:2rem}}
+input,textarea{{width:100%;padding:.8rem;margin:.5rem 0;border-radius:8px;border:1px solid #d8d3ca;background:#f5f1e8;color:#1f2933;font-size:1rem}}
 button{{width:100%;padding:.9rem;border:0;border-radius:10px;background:#0ea5e9;color:#fff;font-weight:700;font-size:1rem;cursor:pointer;margin-top:.8rem}}
-a{{color:#6366f1}}</style></head><body><div class='card'>
+a{{color:#0f766e}}</style></head><body><div class='card'>
 <h1>🏢 Enterprise & custom</h1>
 <p class='muted'>Tell us about your stack and volume. We reply within 1 business day with a tailored plan and onboarding.</p>
 <form id='contact-form'>
@@ -1583,10 +1583,10 @@ async def pricing_page():
 <meta property='og:type' content='website'><meta property='og:title' content='Pricing — AI Automated Systems'>
 <meta property='og:description' content='Transparent private-AI products and GPU compute pricing.'>
 <meta property='og:url' content='https://aiautomatedsystems.ca/pricing'>
-<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:900px;margin:6vh auto;padding:0 20px;line-height:1.6}}
-h1{{font-size:2rem}} table{{width:100%;border-collapse:collapse;margin-top:1rem}} th,td{{text-align:left;padding:.7rem;border-bottom:1px solid #27272a}}
+<style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:900px;margin:6vh auto;padding:0 20px;line-height:1.6}}
+h1{{font-size:2rem}} table{{width:100%;border-collapse:collapse;margin-top:1rem}} th,td{{text-align:left;padding:.7rem;border-bottom:1px solid #d8d3ca}}
 .cta{{background:#0ea5e9;color:#fff;padding:.5rem .9rem;border-radius:8px;text-decoration:none;font-weight:700}}
-a{{color:#6366f1}}</style></head><body>
+a{{color:#0f766e}}</style></head><body>
 <h1>💳 All products & bundles</h1>
 <p class='muted'>One-time payments. Lifetime access. Stripe-secured. Need volume or custom? <a href='/contact'>Talk to us</a>.</p>
 <table><thead><tr><th>Product</th><th>Price</th><th></th></tr></thead><tbody>
@@ -1671,8 +1671,8 @@ async def blog_index():
 <meta property='og:type' content='website'><meta property='og:title' content='Local AI Ops Blog — AI Automated Systems'>
 <meta property='og:description' content='Practical private-AI, automation, and GPU operations guides.'>
 <meta property='og:url' content='https://aiautomatedsystems.ca/blog'>
-<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:800px;margin:6vh auto;padding:0 20px;line-height:1.7}}
-h1{{font-size:2rem}} a{{color:#6366f1}} li{{margin:.5rem 0}}</style></head><body>
+<style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:800px;margin:6vh auto;padding:0 20px;line-height:1.7}}
+h1{{font-size:2rem}} a{{color:#0f766e}} li{{margin:.5rem 0}}</style></head><body>
 <h1>📝 Local-AI Ops Blog</h1>
 <p class='muted'>Practical guides on self-hosting, ComfyUI, n8n, and private inference.</p>
 <ul>{''.join(items)}</ul>
@@ -1736,8 +1736,8 @@ async def blog_post(slug: str):
 <meta property='og:type' content='article'><meta property='og:title' content='{title_html}'>
 <meta property='og:description' content='{description_html}'><meta property='og:url' content='{canonical}'>
 <script type='application/ld+json'>{article_schema}</script>
-<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:800px;margin:6vh auto;padding:0 20px;line-height:1.7}}
-h1,h2{{color:#fff}} a{{color:#6366f1}} p,li{{color:#d4d4d8}}</style></head><body>
+<style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:800px;margin:6vh auto;padding:0 20px;line-height:1.7}}
+h1,h2{{color:#fff}} a{{color:#0f766e}} p,li{{color:#52606d}}</style></head><body>
 {body}
 {product_footer}
 <p class='muted'><a href='/blog'>← All posts</a></p>
@@ -1952,10 +1952,10 @@ async def gpu_calculator():
 <meta property='og:type' content='website'><meta property='og:title' content='GPU Cost Calculator — AI Automated Systems'>
 <meta property='og:description' content='Compare cloud and self-hosted GPU costs.'>
 <meta property='og:url' content='https://aiautomatedsystems.ca/tools/gpu-cost-calculator'>
-<style>body{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:640px;margin:6vh auto;padding:0 20px;line-height:1.6}
-h1{font-size:1.8rem}label{display:block;margin:1rem 0 .3rem}a{color:#6366f1}
+<style>body{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:640px;margin:6vh auto;padding:0 20px;line-height:1.6}
+h1{font-size:1.8rem}label{display:block;margin:1rem 0 .3rem}a{color:#0f766e}
 input,select{width:100%;padding:.6rem;background:#1a1a1f;border:1px solid #333;color:#fff;border-radius:6px}
-button{margin-top:1.2rem;background:#6366f1;color:#fff;border:0;padding:.7rem 1.2rem;border-radius:6px;cursor:pointer}
+button{margin-top:1.2rem;background:#0f766e;color:#fff;border:0;padding:.7rem 1.2rem;border-radius:6px;cursor:pointer}
 #out{margin-top:1.2rem;padding:1rem;background:#1a1a1f;border-radius:6px;font-size:1.1rem}</style></head>
 <body><h1>GPU Cost Calculator</h1>
 <p>Compare cloud vs your EPYC self-hosted GPUs (V100/P40).</p>
@@ -1993,8 +1993,8 @@ async def compare_page(topic: str):
 <meta name='description' content='{description}'><link rel='canonical' href='{canonical}'>
 <meta property='og:type' content='article'><meta property='og:title' content='{_h.escape(title)}'>
 <meta property='og:description' content='{description}'><meta property='og:url' content='{canonical}'>
-<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:720px;margin:6vh auto;padding:0 20px;line-height:1.7}}
-h1{{font-size:2rem}}a{{color:#6366f1}}p,li{{color:#d4d4d8}}</style></head><body>
+<style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:720px;margin:6vh auto;padding:0 20px;line-height:1.7}}
+h1{{font-size:2rem}}a{{color:#0f766e}}p,li{{color:#52606d}}</style></head><body>
 <h1>{_h.escape(title)}</h1><p>{_h.escape(body)}</p>
 <p><a href='/pricing'>See all bundles & pricing</a> · <a href='/blog'>Read the blog</a></p>
 <p><a href='/'>Home</a></p></body></html>"""
@@ -2028,9 +2028,9 @@ async def status_page(request: Request):
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>System Status — AI Automated Systems</title>
-<style>body{{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:640px;margin:6vh auto;padding:0 20px;line-height:1.6}}
+<style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:640px;margin:6vh auto;padding:0 20px;line-height:1.6}}
 h1{{font-size:1.8rem}}.ok{{color:#22c55e}}.pill{{display:inline-block;padding:.3rem .7rem;border:1px solid #333;border-radius:999px;margin:.3rem 0}}
-a{{color:#6366f1}}</style></head><body>
+a{{color:#0f766e}}</style></head><body>
 <h1>System Status</h1>
 <p><span class='pill ok'>● All systems operational</span></p>
 <ul>
@@ -2061,8 +2061,8 @@ async def free_audit_guide(request: Request):
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Free AI Lab Audit Guide — AI Automated Systems</title>
 <meta name='description' content='Get a real GPU-backed audit of your local AI stack. Free, no card required.'>
-<style>body{font-family:system-ui;background:#0d0d0f;color:#e4e4e7;max-width:640px;margin:6vh auto;padding:0 20px;line-height:1.7}
-h1{font-size:2rem}a{color:#6366f1}.cta{display:inline-block;margin-top:1.2rem;background:#6366f1;color:#fff;text-decoration:none;padding:.7rem 1.3rem;border-radius:6px}</style></head>
+<style>body{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:640px;margin:6vh auto;padding:0 20px;line-height:1.7}
+h1{font-size:2rem}a{color:#0f766e}.cta{display:inline-block;margin-top:1.2rem;background:#0f766e;color:#fff;text-decoration:none;padding:.7rem 1.3rem;border-radius:6px}</style></head>
 <body><h1>Free AI Lab Audit Guide</h1>
 <p>See exactly where your local AI stack is leaking money — VRAM waste, idle GPUs, and runaway API spend.</p>
 <p>We run a <strong>real GPU job</strong> on our EPYC rig and send you a personalized report. No card, no fluff.</p>

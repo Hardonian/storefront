@@ -704,14 +704,24 @@ async def index(request: Request):
         ip = p.get("image_path") or ""
         if ip.startswith("/home/scott/hardonia.store/products/"):
             p["image_path"] = "/product-assets/" + ip[len("/home/scott/hardonia.store/products/"):]
+        elif ip and not ip.startswith("/"):
+            # Catalog manifests may store a product-local relative path.
+            p["image_path"] = f"/product-assets/{p.get('slug', '')}/{ip}"
         p["checkout_url"] = _safe_external_url(p.get("checkout_url"))
         p["gumroad_url"] = _safe_external_url(p.get("gumroad_url"))
+    saleable_products = [p for p in products if p.get("status") in {"ready", "early-access"}]
+    featured_products = [p for p in saleable_products if p.get("slug") in {
+        "sovereign-ops-score", "ai-box-doctor", "private-inference-access",
+        "hardonia-compute-api-access", "n8n-automation-kit", "comfyui-workflow-pack",
+        "autonomous-revenue-loop",
+    }]
     flags = flag_engine.load_flags()
     hero_variant = flag_engine.evaluate_variant("hero_variant", _session_id(request))
     cta_variant = flag_engine.evaluate_variant("cta_variant", _session_id(request))
     try:
         html = jinja_env.get_template("index.html").render(
-            products=products,
+            products=saleable_products,
+            featured_products=featured_products,
             title="AI Automated Systems — Tools, Audits & Workflows",
             hero_variant=hero_variant,
             cta_variant=cta_variant,
@@ -1160,6 +1170,15 @@ async def product_page(slug: str, request: Request):
     if image_absolute:
         product_schema["image"] = image_absolute
     product_schema_json = json.dumps(product_schema, ensure_ascii=False).replace("</", "<\\/")
+    platform_layer = {
+        "sovereign-ops-score": ("01 · PROVE", "Establish a measurable baseline before you scale."),
+        "ai-box-doctor": ("01 · PROVE", "Keep the box healthy after the audit."),
+        "private-inference-access": ("02 · RUN", "Put private models to work on owned infrastructure."),
+        "hardonia-compute-api-access": ("02 · RUN", "Expose controlled GPU capacity without losing isolation."),
+        "comfyui-workflow-pack": ("03 · AUTOMATE", "Turn creative workflows into reproducible assets."),
+        "n8n-automation-kit": ("03 · AUTOMATE", "Connect the work so it runs without babysitting."),
+        "autonomous-revenue-loop": ("04 · COMPOUND", "Convert reliable operations into a repeatable offer."),
+    }.get(slug, ("PLATFORM TOOL", "A focused capability that plugs into the same operating system."))
 
     html = f"""<!doctype html>
 <html lang="en"><head>
@@ -1176,9 +1195,9 @@ async def product_page(slug: str, request: Request):
 {f'<meta property="og:image" content="{image_absolute}">' if image_absolute else ''}
 <meta name="twitter:card" content="summary_large_image">
 <style>
-:root{{--bg:#0d0d0f;--card:#1a1a1e;--accent:#6366f1;--text:#e4e4e7;--muted:#a1a1aa;--border:#27272a;--price:#34d399}}
+:root{{--bg:#f5f1e8;--card:#fffdf8;--accent:#0f766e;--text:#1f2933;--muted:#66717d;--border:#d8d3ca;--price:#b45309}}
 *{{margin:0;padding:0;box-sizing:border-box}}
-body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;background-image:radial-gradient(circle at 10% 0%,rgba(15,118,110,.08),transparent 32rem),radial-gradient(circle at 90% 10%,rgba(180,83,9,.06),transparent 28rem)}}
 .container{{max-width:880px;margin:0 auto;padding:2.5rem 1.5rem}}
 header a{{color:var(--accent);text-decoration:none}}
 .img{{width:100%;max-height:340px;object-fit:cover;border-radius:12px;border:1px solid var(--border);margin:1.25rem 0}}
@@ -1197,7 +1216,7 @@ p,.pain{{color:var(--muted)}}
 .trust .pill{{border:1px solid var(--border);border-radius:999px;padding:.35rem .8rem;background:var(--card)}}
 .trust .pill.urgency{{background:#7f1d1d;color:#fca5a5;border-color:#b91c1c;font-weight:700}}
 .trust-row{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.7rem;margin:1.5rem 0}}
-.tbadge{{display:flex;gap:.6rem;align-items:center;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:.7rem .9rem}}
+.tbadge{{display:flex;gap:.6rem;align-items:center;background:rgba(255,253,248,.9);border:1px solid var(--border);box-shadow:0 12px 30px rgba(31,41,51,.06);border-radius:12px;padding:.7rem .9rem}}
 .ticon{{font-size:1.4rem}}
 .ttext{{font-size:.82rem;line-height:1.3}} .ttext b{{color:var(--text)}} .ttext small{{color:var(--muted)}}
 .gallery{{display:flex;flex-wrap:wrap;gap:.6rem;margin:1rem 0}}
@@ -1210,11 +1229,16 @@ p,.pain{{color:var(--muted)}}
 .tiers th{{color:var(--muted);font-weight:600}}
 footer{{margin-top:2.5rem;color:var(--muted);font-size:.85rem}}
 footer a{{color:var(--accent);text-decoration:none}}
+.platform-nav{{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:2rem;font-size:.85rem}}
+.platform-nav a{{color:var(--accent);text-decoration:none}}
+.platform-layer{{padding:1rem 1.2rem;margin:0 0 1.5rem;border:1px solid #155e75;border-radius:12px;background:linear-gradient(110deg,#111827,#122b3d)}}
+.platform-layer b{{display:block;color:#67e8f9;font-size:.75rem;letter-spacing:.12em}}
+.platform-layer span{{color:var(--muted);font-size:.9rem}}
 .sticky-cta{{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);padding:.8rem 1rem;display:flex;gap:.6rem;justify-content:center;z-index:50}}
 @media(max-width:600px){{.sticky-cta{{flex-wrap:wrap}}}}
 .exit-modal{{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:60}}
 .exit-modal.show{{display:flex}}
-.exit-card{{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:2rem;max-width:420px;text-align:center}}
+.exit-card{{background:rgba(255,253,248,.9);border:1px solid var(--border);box-shadow:0 12px 30px rgba(31,41,51,.06);border-radius:14px;padding:2rem;max-width:420px;text-align:center}}
 .exit-card input{{width:100%;padding:.6rem;margin:.6rem 0;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)}}
 .dash-card{{margin:1.5rem 0;padding:1.1rem 1.3rem;border-radius:14px;background:linear-gradient(135deg,#0f1f17,#0d1117);border:1px solid #166534}}
 .dash-head{{font-size:1.05rem;font-weight:700;color:#4ade80;margin-bottom:.4rem}}
@@ -1222,6 +1246,8 @@ footer a{{color:var(--accent);text-decoration:none}}
 .dash-feats{{margin:.4rem 0 1rem;padding-left:1.1rem;color:var(--text);font-size:.88rem;line-height:1.6}}
 .dash-feats li{{margin:.2rem 0}}
 </style></head><body><div class="container">
+<nav class="platform-nav"><a href="/">← The Platform</a><span><a href="/proof-score">Proof Score</a> · <a href="/free-audit-guide">Free Audit</a> · <a href="/contact">Talk to an operator</a></span></nav>
+<div class="platform-layer"><b>{platform_layer[0]}</b><span>{platform_layer[1]}</span></div>
 <!-- SEO: JSON-LD Product -->
 <script type="application/ld+json">{product_schema_json}</script>
 <h1>{name_html}</h1>

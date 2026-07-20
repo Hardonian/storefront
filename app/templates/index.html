@@ -14,26 +14,27 @@
   <meta name="twitter:card" content="summary_large_image">
   <style>
     :root {
-      --bg: #0d0d0f;
-      --card: #1a1a1e;
-      --accent: #6366f1;
-      --accent-hover: #818cf8;
-      --text: #e4e4e7;
-      --text-muted: #a1a1aa;
-      --border: #27272a;
-      --price: #34d399;
+      --bg: #f5f1e8;
+      --card: #fffdf8;
+      --accent: #0f766e;
+      --accent-hover: #115e59;
+      --text: #1f2933;
+      --text-muted: #66717d;
+      --border: #d8d3ca;
+      --price: #b45309;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: var(--bg); color: var(--text); line-height: 1.6;
+      background-image: radial-gradient(circle at 10% 0%, rgba(15,118,110,.08), transparent 32rem), radial-gradient(circle at 90% 10%, rgba(180,83,9,.06), transparent 28rem);
       min-height: 100vh;
     }
     .container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
     header { text-align: center; margin-bottom: 3rem; }
     header h1 {
       font-size: 2.5rem; font-weight: 800; letter-spacing: -0.03em;
-      background: linear-gradient(135deg, #fff 0%, #a1a1aa 100%);
+      background: linear-gradient(135deg, #1f2933 0%, #64748b 100%);
       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       margin-bottom: 0.5rem;
     }
@@ -44,13 +45,14 @@
       gap: 1.5rem;
     }
     .card {
-      background: var(--card); border: 1px solid var(--border);
+      background: rgba(255,253,248,.88); border: 1px solid var(--border); box-shadow: 0 12px 30px rgba(31,41,51,.06);
       border-radius: 12px; padding: 1.5rem;
       transition: border-color 0.2s, transform 0.2s;
       display: flex; flex-direction: column; gap: 0.75rem;
     }
     .card-img {
       width: 100%; height: 180px; object-fit: cover;
+      background: linear-gradient(135deg, #d9f3ee 0%, #fae8d5 100%);
       border-radius: 8px; border: 1px solid var(--border);
       display: block;
     }
@@ -76,7 +78,7 @@
       font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.05em;
     }
-    .badge-ready { background: #166534; color: #4ade80; }
+    .badge-ready { background: #d1fae5; color: #166534; }
     .badge-draft { background: #3f3f46; color: #a1a1aa; }
     .badge-popular { background: #f3a73c; color: #1a1205; font-weight: 700; }
     footer { text-align: center; margin-top: 3rem; color: var(--text-muted); font-size: 0.85rem; }
@@ -86,7 +88,7 @@
     .grid.grid-dense .card-img { height: 130px; }
     .newsletter {
       max-width: 640px; margin: 0 auto 2.5rem; padding: 1.5rem;
-      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      background: rgba(255,253,248,.88); border: 1px solid var(--border); box-shadow: 0 12px 30px rgba(31,41,51,.06); border-radius: 12px;
       text-align: center;
     }
     .newsletter h2 { font-size: 1.25rem; margin-bottom: 0.25rem; }
@@ -94,7 +96,7 @@
     .newsletter form { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
     .newsletter input[type=email] {
       flex: 1; min-width: 220px; padding: 0.7rem 1rem; border-radius: 8px;
-      border: 1px solid var(--border); background: #0d0d0f; color: var(--text); font-size: 0.9rem;
+      border: 1px solid var(--border); background: #f5f1e8; color: var(--text); font-size: 0.9rem;
     }
     .newsletter .btn { flex: 0 0 auto; }
     .newsletter .msg { margin-top: 0.75rem; font-size: 0.85rem; min-height: 1.2em; }
@@ -112,7 +114,7 @@
     .trust-bar .pill b { color: var(--text); font-weight: 600; }
     .gpu-widget {
       max-width: 420px; margin: 0 auto 2.5rem; padding: 1.25rem 1.5rem;
-      background: linear-gradient(135deg, #1a1a1e, #16213a);
+      background: linear-gradient(135deg, #fffdf8, #eef6f3);
       border: 1px solid var(--border); border-radius: 12px; text-align: center;
     }
     .gpu-live { font-size: 0.75rem; letter-spacing: 0.1em; color: var(--text-muted); text-transform: uppercase; }
@@ -122,12 +124,12 @@
     .gpu-sub { color: var(--text-muted); font-size: 0.8rem; }
     .empire-band {
       margin: 3rem auto 1rem; padding: 2rem 1.5rem; max-width: 1100px;
-      background: linear-gradient(135deg, #1a1a1e, #16213a);
+      background: linear-gradient(135deg, #fffdf8, #eef6f3);
       border: 1px solid var(--border); border-radius: 16px; text-align: center;
     }
     .empire-title {
       font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em;
-      background: linear-gradient(135deg, #fff 0%, #a1a1aa 100%);
+      background: linear-gradient(135deg, #1f2933 0%, #64748b 100%);
       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     }
     .empire-sub { color: var(--text-muted); font-size: 0.95rem; margin: 0.5rem 0 1.5rem; }
@@ -136,7 +138,7 @@
       gap: 1rem; text-align: left;
     }
     .empire-card {
-      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      background: rgba(255,253,248,.88); border: 1px solid var(--border); box-shadow: 0 12px 30px rgba(31,41,51,.06); border-radius: 12px;
       overflow: hidden; text-decoration: none; color: var(--text);
       transition: border-color 0.2s, transform 0.2s; display: flex; flex-direction: column;
     }
@@ -148,7 +150,7 @@
     .empire-cta { margin-top: auto; text-align: center; }
     .roi-band {
       margin: 2.5rem auto; padding: 2rem 1.5rem; max-width: 900px;
-      background: var(--card); border: 1px solid var(--border); border-radius: 16px; text-align: center;
+      background: rgba(255,253,248,.88); border: 1px solid var(--border); box-shadow: 0 12px 30px rgba(31,41,51,.06); border-radius: 16px; text-align: center;
     }
     .roi-title { font-size: 1.4rem; font-weight: 800; }
     .roi-sub { color: var(--text-muted); font-size: 0.9rem; margin: 0.4rem 0 1.2rem; }
@@ -156,13 +158,38 @@
     .roi-row label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; color: var(--text-muted); text-align: left; }
     .roi-row input, .roi-row select {
       padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid var(--border);
-      background: #0d0d0f; color: var(--text); font-size: 0.95rem; width: 200px;
+      background: #f5f1e8; color: var(--text); font-size: 0.95rem; width: 200px;
     }
     .roi-result {
       margin-top: 1.2rem; font-size: 1.05rem; font-weight: 600; color: var(--price);
       min-height: 1.5em;
     }
     .roi-result small { color: var(--text-muted); font-weight: 400; }
+    .site-nav { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:3rem; font-size:.9rem; }
+    .site-nav .brand { color:var(--text); font-weight:800; letter-spacing:.02em; text-decoration:none; }
+    .site-nav .links { display:flex; gap:1rem; flex-wrap:wrap; }
+    .site-nav a { color:var(--text-muted); text-decoration:none; }
+    .site-nav a:hover { color:var(--text); }
+    .hero { max-width:900px; margin:0 auto 2.5rem; text-align:center; }
+    .eyebrow { color:#0f766e; text-transform:uppercase; letter-spacing:.16em; font-size:.72rem; font-weight:800; }
+    .hero h1 { font-size:clamp(2.8rem,7vw,5.5rem); line-height:1.02; letter-spacing:-.06em; margin:.8rem 0 1rem; }
+    .hero h1 span { color:#0f766e; }
+    .hero-copy { color:var(--text-muted); font-size:1.2rem; max-width:760px; margin:0 auto 1.4rem; }
+    .hero-actions { display:flex; gap:.7rem; justify-content:center; flex-wrap:wrap; }
+    .hero-actions .btn { flex:0 0 auto; padding:.75rem 1.1rem; }
+    .proof-callout { display:flex; gap:1rem; align-items:center; justify-content:space-between; flex-wrap:wrap; max-width:900px; margin:0 auto 2.5rem; padding:1.25rem 1.5rem; background:linear-gradient(110deg,#eef6f3,#fff8ed); border:1px solid #99d5cf; border-radius:16px; }
+    .proof-callout strong { display:block; font-size:1.05rem; }
+    .proof-callout p { color:#0f766e; margin:.25rem 0 0; font-size:.88rem; }
+    .proof-score { font-size:2.4rem; font-weight:900; color:#b45309; white-space:nowrap; }
+    .journey { margin:2.5rem auto; max-width:1000px; display:grid; grid-template-columns:repeat(4,1fr); gap:.7rem; }
+    .journey-step { padding:1rem; background:#fffdf8; border:1px solid var(--border); border-radius:12px; }
+    .journey-step b { display:block; color:#0f766e; font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; }
+    .journey-step span { display:block; margin-top:.3rem; font-weight:700; }
+    .journey-step small { display:block; color:var(--text-muted); margin-top:.25rem; }
+    .section-heading { max-width:1000px; margin:3rem auto 1rem; }
+    .section-heading h2 { font-size:1.8rem; letter-spacing:-.03em; }
+    .section-heading p { color:var(--text-muted); margin-top:.35rem; }
+    @media(max-width:700px){.journey{grid-template-columns:1fr 1fr}.site-nav{align-items:flex-start;flex-direction:column}}
   </style>
   <script src="/landing-assets/analytics.js" defer></script>
   <script type="application/ld+json">
@@ -184,15 +211,28 @@
 </head>
 <body>
 <div class="container">
-  <header>
-    {% if hero_variant == 'B' %}
-    <h1>Turn Your AI Lab Into Revenue</h1>
-    <p>Done-for-you audits, automation, and tooling that pay for themselves</p>
-    {% else %}
-    <h1>AI Products</h1>
-    <p>Automation, audits, and tooling for builders &amp; agencies</p>
-    {% endif %}
+  <nav class="site-nav" aria-label="Primary navigation">
+    <a class="brand" href="/">THE PLATFORM</a>
+    <div class="links"><a href="/proof-score">Proof Score</a><a href="/free-audit-guide">Free Audit</a><a href="/pricing">Pricing</a><a href="/contact">Talk to an operator</a></div>
+  </nav>
+  <header class="hero">
+    <div class="eyebrow">Private AI operations, made provable</div>
+    <h1>Build it locally.<br><span>Operate it with proof.</span></h1>
+    <p class="hero-copy">The Platform gives builders and teams one coherent path from a healthy AI box to reliable workflows, private inference, automated operations, and measurable revenue — without surrendering control of their data.</p>
+    <div class="hero-actions"><a class="btn btn-primary" href="/proof-score">See the live Proof Score →</a><a class="btn btn-secondary" href="/free-audit-guide">Run the free readiness audit</a></div>
   </header>
+
+  <section class="proof-callout" aria-label="Live platform proof">
+    <div><strong>Our own fleet publishes operational evidence, not marketing claims.</strong><p>GPU health · resilience · autonomy · catalog truth · signed aggregate report</p></div>
+    <div><span class="proof-score" id="home-proof-score">Loading proof…</span><a class="btn btn-secondary" href="/proof-score">Inspect evidence</a></div>
+  </section>
+
+  <section class="journey" aria-label="Platform journey">
+    <div class="journey-step"><b>01 · Prove</b><span>Readiness &amp; health</span><small>Know what is actually running.</small></div>
+    <div class="journey-step"><b>02 · Run</b><span>Private inference</span><small>Route work to owned GPUs.</small></div>
+    <div class="journey-step"><b>03 · Automate</b><span>Workflows &amp; agents</span><small>Make repeatable work boring.</small></div>
+    <div class="journey-step"><b>04 · Compound</b><span>Revenue operations</span><small>Turn reliable systems into offers.</small></div>
+  </section>
 
   {% if trust_bar_enabled %}
   <div class="trust-bar">
@@ -204,8 +244,8 @@
   {% endif %}
 
   <div class="gpu-widget" id="gpu-widget">
-    <div class="gpu-live"><span class="dot" id="gpu-dot"></span> LIVE GPUs</div>
-    <div class="gpu-stat"><b id="gpu-free">--</b>% VRAM free</div>
+    <div class="gpu-live"><span class="dot" id="gpu-dot"></span> GPU CAPACITY</div>
+    <div class="gpu-stat"><b id="gpu-free">Checking capacity…</b></div>
     <div class="gpu-sub" id="gpu-name">checking…</div>
     <a href="/p/hardonia-compute-api-access" class="btn btn-primary" style="margin-top:.5rem">Run a job on these GPUs →</a>
   </div>
@@ -245,6 +285,23 @@
     <div class="roi-result" id="roi-result">—</div>
   </section>
 
+  <section class="section-heading"><h2>The Platform, in four operating layers</h2><p>Start with proof, add capability, then scale into managed operations. Each layer works alone and becomes more valuable with the next.</p></section>
+  {% if featured_products %}
+  <div class="grid {% if product_grid_dense %}grid-dense{% endif %}">
+    {% for p in featured_products %}
+    <div class="card">
+      {% if p.image_path %}<a href="/p/{{ p.slug }}"><img src="{{ p.image_path }}" alt="{{ p.name }}" class="card-img"></a>{% endif %}
+      <span class="badge badge-ready">Platform layer</span><h3>{{ p.name }}</h3>
+      {% if p.pain %}<p class="audience">{{ p.pain }}</p>{% elif p.offer %}<p class="audience">{{ p.offer }}</p>{% endif %}
+      {% if p.price %}<p class="price">{{ p.price }}</p>{% endif %}
+      <div class="actions"><a href="/p/{{ p.slug }}" class="btn btn-secondary">See the layer</a><a href="/lead?slug={{ p.slug }}" class="btn btn-primary">Get the guide</a></div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <section class="section-heading"><h2>Everything else, organized by outcome</h2><p>Digital packs and specialist tools plug into the same operating system: private, reproducible, supportable, and ready to ship.</p></section>
+
   {% if products %}
   <div class="grid {% if product_grid_dense %}grid-dense{% endif %}">
     {% for p in products %}
@@ -255,8 +312,8 @@
       </a>
       {% endif %}
       <div>
-        {% if p.status == 'ready' %}
-        <span class="badge badge-ready">Ready</span>
+        {% if p.status in ['ready', 'early-access'] %}
+        <span class="badge badge-ready">{% if p.status == 'early-access' %}Early access{% else %}Ready{% endif %}</span>
         {% else %}
         <span class="badge badge-draft">{{ p.status }}</span>
         {% endif %}
@@ -271,7 +328,7 @@
       <div class="actions">
         <a href="/p/{{ p.slug }}" class="btn btn-secondary">View Details</a>
         <a href="/lead?slug={{ p.slug }}" class="btn btn-secondary" style="border-color:var(--accent);color:var(--accent)">Free Guide</a>
-        {% if p.status == 'ready' %}
+        {% if p.status in ['ready', 'early-access'] %}
           {% if p.checkout_url %}
           <a href="{{ p.checkout_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">{% if cta_variant == 'B' %}Get Instant Access{% else %}Buy Now{% endif %}</a>
           {% elif p.gumroad_url %}
@@ -354,20 +411,31 @@
         });
       });
     })();
+    // Live aggregate proof score (public-safe; no private telemetry)
+    (function () {
+      fetch('/api/proof-score').then(function (r) { return r.json(); }).then(function (d) {
+        var node = document.getElementById('home-proof-score');
+        if (node && d.overall_score !== undefined) node.textContent = d.overall_score + '/100';
+      }).catch(function () {});
+    })();
     // Live GPU widget (item 2)
     (function () {
       function tick() {
         fetch('/api/gpu-status').then(function (r) { return r.json(); }).then(function (d) {
           if (d.status !== 'ok') return;
-          document.getElementById('gpu-free').textContent = d.free_pct;
+          document.getElementById('gpu-free').textContent = d.free_pct + '% VRAM free';
           var label = d.gpu || 'GPU online';
           if (d.from_cents_per_hour) {
             label += ' · from $' + (d.from_cents_per_hour/100).toFixed(2) + '/hr';
           }
           document.getElementById('gpu-name').textContent = label;
           var dot = document.getElementById('gpu-dot');
-          dot.style.background = d.free_pct > 50 ? '#34d399' : '#f3a73c';
-        }).catch(function () {});
+          dot.style.background = d.free_pct > 50 ? '#0f766e' : '#b45309';
+        }).catch(function () {
+          document.getElementById('gpu-free').textContent = 'Capacity status unavailable';
+          document.getElementById('gpu-name').textContent = 'No live capacity response';
+          document.getElementById('gpu-dot').style.background = '#b45309';
+        });
       }
       tick();
       setInterval(tick, 30000);

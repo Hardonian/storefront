@@ -8,7 +8,9 @@ Backup taken by caller. For each product:
 Amounts below mirror mint_revenue_ladder.py LADDER (single source of truth there).
 """
 from __future__ import annotations
-import json, sqlite3
+
+import json
+import sqlite3
 from pathlib import Path
 
 DB = "/home/scott/ai-lab/revenue-os/revenue-os.db"
@@ -36,25 +38,32 @@ AMOUNTS = {
 
 def main():
     man = json.loads(Path(MANIFEST).read_text())
-    c = sqlite3.connect(DB); c.row_factory = sqlite3.Row
+    c = sqlite3.connect(DB)
+    c.row_factory = sqlite3.Row
     updated = 0
     for slug, tiers in man.items():
         amt = AMOUNTS.get(slug, {})
         pro_url = tiers.get("pro") if isinstance(tiers.get("pro"), str) else None
         prem_url = tiers.get("premium") if isinstance(tiers.get("premium"), str) else None
         row = c.execute("SELECT status, checkout_url, gumroad_url FROM products WHERE slug=?", (slug,)).fetchone()
-        if not row: print("SKIP no product:", slug); continue
+        if not row:
+            print("SKIP no product:", slug)
+            continue
         parts = ["Free to try"]
-        if pro_url and "pro" in amt: parts.append(f"Pro {amt['pro'][0]}")
-        if prem_url and "premium" in amt: parts.append(f"Premium {amt['premium'][0]}")
-        if amt.get("enterprise"): parts.append("Enterprise contact")
+        if pro_url and "pro" in amt:
+            parts.append(f"Pro {amt['pro'][0]}")
+        if prem_url and "premium" in amt:
+            parts.append(f"Premium {amt['premium'][0]}")
+        if amt.get("enterprise"):
+            parts.append("Enterprise contact")
         ladder = " · ".join(parts)
         new_status = "ready" if row["status"] in ("draft", "draft-page") else row["status"]
         c.execute("UPDATE products SET checkout_url=?, gumroad_url=?, price=?, status=? WHERE slug=?",
                   (pro_url or row["checkout_url"], prem_url or row["gumroad_url"], ladder, new_status, slug))
         updated += 1
         print(f"UPD {slug}: {new_status} | {ladder}")
-    c.commit(); c.close()
+    c.commit()
+    c.close()
     print(f"\nTotal updated: {updated}")
 
 if __name__ == "__main__":

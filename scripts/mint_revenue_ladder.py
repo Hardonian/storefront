@@ -14,7 +14,11 @@ Tier model (grounded in existing revenue-os prices):
 Only mints links that don't already exist in the DB for that slug+tier.
 """
 from __future__ import annotations
-import json, os, sys, sqlite3
+
+import json
+import os
+import sqlite3
+
 import stripe
 
 stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
@@ -89,7 +93,8 @@ def already(slug, tier):
     c = sqlite3.connect(DB)
     row = c.execute("SELECT checkout_url, gumroad_url FROM products WHERE slug=?", (slug,)).fetchone()
     c.close()
-    if not row: return False
+    if not row:
+        return False
     chk, gum = (row[0] or ""), (row[1] or "")
     return tier in (chk + " " + gum)
 

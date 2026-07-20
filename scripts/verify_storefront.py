@@ -122,7 +122,7 @@ def main() -> int:
     if not WARN and not BLOCK:
         print("  OK: catalog, links, and buyer surface all clean.")
 
-    print(f"\nproducts={len(rows)}  duplicates={len([l for l,s in by_link.items() if len(s)>1])}")
+    print(f"\nproducts={len(rows)}  duplicates={len([link for link, s in by_link.items() if len(s) > 1])}")
     return 1 if BLOCK else 0
 
 

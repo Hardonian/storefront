@@ -10,7 +10,8 @@ Output: /home/scott/ai-lab/reports/deliverables-manifest.json
 No external calls. Idempotent.
 """
 from __future__ import annotations
-import json, re
+
+import json
 from pathlib import Path
 
 ROOT = Path("/home/scott/hardonia.store/products")
@@ -21,7 +22,16 @@ MEDIA_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".svg"}
 DOC_EXT = {".md", ".txt", ".pdf"}
 CODE_EXT = {".py", ".sh", ".service", ".timer", ".json", ".yaml", ".yml", ".csv", ".toml"}
 
-SKIP = {"README.md", "CHANGELOG.md", "MANIFEST", "LICENSE", "product.json", "PREVIEW.md", "WALKTHROUGH.md", "SUPPORT.md"}
+SKIP = {
+    "README.md",
+    "CHANGELOG.md",
+    "MANIFEST",
+    "LICENSE",
+    "product.json",
+    "PREVIEW.md",
+    "WALKTHROUGH.md",
+    "SUPPORT.md",
+}
 
 def rel(p: Path, base: Path) -> str:
     return str(p.relative_to(base))

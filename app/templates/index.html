@@ -210,6 +210,7 @@
   </script>
 </head>
 <body>
+<main>
 <div class="container">
   <nav class="site-nav" aria-label="Primary navigation">
     <a class="brand" href="/">THE PLATFORM</a>
@@ -237,9 +238,10 @@
   {% if trust_bar_enabled %}
   <div class="trust-bar">
     <span class="pill">🔒 <b>Secure checkout</b> via Stripe &amp; Gumroad</span>
-    <span class="pill">✅ <b>30-day</b> money-back guarantee</span>
-    <span class="pill">⚡ <b>Instant</b> digital delivery</span>
-    <span class="pill">🛠️ <b>Done-for-you</b> options available</span>
+    <span class="pill">🧭 <b>Clear scope &amp; pricing</b> before purchase</span>
+    <span class="pill">📦 <b>Documented delivery</b> or human onboarding</span>
+    <span class="pill">🛡️ <b>Private-first</b> options where practical</span>
+    <span class="pill">🤝 <b>Human support</b> for every offer</span>
   </div>
   {% endif %}
 
@@ -266,7 +268,7 @@
 
   <section class="roi-band">
     <h2 class="roi-title">See Your Bottom-Line Savings</h2>
-    <p class="roi-sub">Fixed-price private GPU inference vs. volatile cloud spend. Deterministic, no black box.</p>
+    <p class="roi-sub">Illustrative private GPU inference estimate. Adjust the inputs to see a planning comparison; actual scope, capacity, and currency follow the selected product.</p>
     <div class="roi-row">
       <label>Current cloud GPU spend ($/mo)
         <input type="number" id="roi-cloud" value="800" min="0" step="50">
@@ -302,9 +304,9 @@
 
   <section class="section-heading"><h2>Everything else, organized by outcome</h2><p>Digital packs and specialist tools plug into the same operating system: private, reproducible, supportable, and ready to ship.</p></section>
 
-  {% if products %}
+  {% if catalog_products %}
   <div class="grid {% if product_grid_dense %}grid-dense{% endif %}">
-    {% for p in products %}
+    {% for p in catalog_products %}
     <div class="card">
       {% if p.image_path %}
       <a href="/p/{{ p.slug }}">
@@ -370,6 +372,7 @@
     <footer>
       <p>AI Automated Systems &middot; <a href="/legal/terms-of-service">Terms</a> &middot; <a href="/legal/privacy-policy">Privacy</a> &middot; <a href="/legal/refund-policy">Refunds</a> &middot; <a href="/unsubscribe">Unsubscribe</a> &middot; <a href="/status">Live Status</a></p>
     </footer>
+</main>
   </div>
 
   <script>
@@ -458,7 +461,7 @@
             out.innerHTML = 'Save <b>$' + d.monthly_savings.toFixed(0) + '/mo</b> ($' +
               d.annual_savings.toFixed(0) + '/yr, ' + d.savings_pct + '%) vs cloud &middot; ' +
               'our rate $' + d.our_fixed_rate_per_hr + '/hr vs cloud $' + d.cloud_blended_rate_per_hr + '/hr ' +
-              '<br><small>Fixed price includes isolation, monitoring, SLA.</small>';
+              '<br><small>Planning estimate only; scope, capacity, and support terms vary by product.</small>';
           })
           .catch(function () { out.textContent = 'Calculator unavailable.'; });
       }

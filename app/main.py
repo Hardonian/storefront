@@ -54,8 +54,15 @@ CREATE TABLE IF NOT EXISTS events (
 """
 
 
+def _analytics_connection(db_path: str):
+    """Use a bounded wait for concurrent catalog/analytics SQLite writes."""
+    conn = _sa_sqlite.connect(str(db_path), timeout=15)
+    conn.execute("PRAGMA busy_timeout=15000")
+    return conn
+
+
 def _init_analytics(db_path: str) -> None:
-    conn = _sa_sqlite.connect(str(db_path))
+    conn = _analytics_connection(db_path)
     try:
         conn.execute(_ANALYTICS_DDL)
         conn.commit()
@@ -73,7 +80,7 @@ def _record_event(event: str, page: str | None, product_slug: str | None,
         "session_id": session_id,
         "referrer": referrer,
     }, separators=(",", ":"))
-    conn = _sa_sqlite.connect(str(settings.db_path))
+    conn = _analytics_connection(settings.db_path)
     try:
         conn.execute(
             "INSERT INTO events (product_slug, event_type, source, payload_json) "
@@ -581,6 +588,8 @@ async def sitemap_xml():
         (f"{base}/", "daily", None),
         (f"{base}/pricing", "weekly", None),
         (f"{base}/blog", "daily", None),
+        (f"{base}/support", "weekly", None),
+        (f"{base}/contact", "weekly", None),
         (f"{base}/tools/gpu-cost-calculator", "monthly", None),
         (f"{base}/proof-score", "hourly", None),
         (f"{base}/proof-benchmark", "daily", None),
@@ -625,7 +634,7 @@ async def sitemap_xml():
 @app.get("/llms.txt", response_class=PlainTextResponse)
 async def llms_txt():
     """Machine-readable, non-sensitive product discovery for AI/search agents."""
-    products = [p for p in store.list_products(settings.db_path) if p.get("status") == "ready"]
+    products = [p for p in store.list_products(settings.db_path) if p.get("status") in {"ready", "early-access"}]
     lines = [
         "# AI Automated Systems",
         "",
@@ -636,9 +645,9 @@ async def llms_txt():
         "- https://aiautomatedsystems.ca/pricing",
         "- https://aiautomatedsystems.ca/blog",
         "- https://aiautomatedsystems.ca/tools/gpu-cost-calculator",
-        "- https://aiautomatedsystems.ca/request-access",
+        "- https://aiautomatedsystems.ca/contact",
         "",
-        "## Ready products",
+        "## Public products",
     ]
     lines.extend(f"- https://aiautomatedsystems.ca/p/{p['slug']}" for p in products)
     return PlainTextResponse("\n".join(lines) + "\n")
@@ -688,6 +697,14 @@ def _session_id(request: Request) -> str:
     return request.cookies.get("aas_sid") or "anon"
 
 
+def _public_checkout_url(value: object) -> str:
+    """Expose only real provider links or our explicit scoped-contact path."""
+    raw = str(value or "").strip()
+    if raw.startswith("https://aiautomatedsystems.ca/contact?product="):
+        return raw
+    return _safe_external_url(raw)
+
+
 def _public_product(product: dict) -> dict:
     """Return only buyer-safe catalog fields; never expose host filesystem paths."""
     allowed = {
@@ -695,6 +712,8 @@ def _public_product(product: dict) -> dict:
         "checkout_url", "gumroad_url", "readiness_score",
     }
     out = {k: product.get(k) for k in allowed}
+    out["checkout_url"] = _public_checkout_url(product.get("checkout_url"))
+    out["gumroad_url"] = _safe_external_url(product.get("gumroad_url"))
     image_path = str(product.get("image_path") or "")
     prefix = "/home/scott/hardonia.store/products/"
     out["image_url"] = "/product-assets/" + image_path[len(prefix):] if image_path.startswith(prefix) else ""
@@ -730,10 +749,12 @@ async def index(request: Request):
         p["gumroad_url"] = _safe_external_url(p.get("gumroad_url"))
     saleable_products = [p for p in products if p.get("status") in {"ready", "early-access"}]
     featured_products = [p for p in saleable_products if p.get("slug") in {
-        "sovereign-ops-score", "ai-box-doctor", "private-inference-access",
+        "sovereign-mission-intelligence", "sovereign-ops-score", "ai-box-doctor", "private-inference-access",
         "hardonia-compute-api-access", "n8n-automation-kit", "comfyui-workflow-pack",
         "autonomous-revenue-loop",
     }]
+    featured_slugs = {p.get("slug") for p in featured_products}
+    catalog_products = [p for p in saleable_products if p.get("slug") not in featured_slugs]
     flags = flag_engine.load_flags()
     hero_variant = flag_engine.evaluate_variant("hero_variant", _session_id(request))
     cta_variant = flag_engine.evaluate_variant("cta_variant", _session_id(request))
@@ -741,6 +762,7 @@ async def index(request: Request):
         html = jinja_env.get_template("index.html").render(
             products=saleable_products,
             featured_products=featured_products,
+            catalog_products=catalog_products,
             title="AI Automated Systems — Tools, Audits & Workflows",
             hero_variant=hero_variant,
             cta_variant=cta_variant,
@@ -799,12 +821,11 @@ def _urgency_badge() -> str:
     return ""
 
 TRUST_BADGES = [
-    ("🔒", "Secured by Stripe", "256-bit TLS checkout"),
-    ("💳", "Visa · Mastercard · Amex · Apple Pay", "All major methods"),
-    ("✅", "30-day money-back", "No-risk guarantee"),
-    ("⚡", "Instant digital delivery", "Get access in minutes"),
-    ("🛡️", "Local-first & GDPR-aware", "Your data stays yours"),
-    ("🤝", "Real human support", "Replies within 1 business day"),
+    ("🔒", "Processor-secured checkout", "Stripe or Gumroad handles payment"),
+    ("🧭", "Clear scope and pricing", "Product-specific terms before purchase"),
+    ("📦", "Documented delivery", "Digital pack or human-led onboarding"),
+    ("🛡️", "Private-first options", "Data-minimizing designs where practical"),
+    ("🤝", "Human support", "Support path included on every offer"),
 ]
 
 PLATFORM_SLUGS = {
@@ -812,10 +833,10 @@ PLATFORM_SLUGS = {
     "inference-api-scale", "compliance-kit", "compliance-keep-current", "uptime-bond",
 }
 PLATFORM_TRUST = [
-    ("📊", "Observable by design", "Live GPU + job audit log, no black box"),
-    ("🏛️", "Audit-ready evidence", "SOC 2 control map + incident runbook"),
-    ("🧱", "Isolated per tenant", "Per-key namespace, hard usage caps"),
-    ("🤖", "Self-healing 24/7", "Watchdogs auto-recover the stack"),
+    ("📊", "Observable operations", "Evidence and status signals are documented"),
+    ("🧭", "Decision-ready handoff", "Runbooks and boundaries are explicit"),
+    ("🧱", "Scoped access", "Isolation and usage limits where applicable"),
+    ("👤", "Human approval gates", "Consequential actions remain reviewable"),
 ]
 
 
@@ -831,10 +852,10 @@ def _trust_row_html(slug: str = "") -> str:
             f'<span class="ttext"><b>{title}</b><br><small>{sub}</small></span></div>'
             for icon, title, sub in PLATFORM_TRUST
         ]
-        if slug in ("uptime-bond", "agent-ops-concierge", "inference-api-scale", "private-ai-vault"):
+    if slug in ("uptime-bond", "agent-ops-concierge", "inference-api-scale", "private-ai-vault"):
             badges.append(
-                '<div class="tbadge"><span class="icon">📈</span>'
-                '<span class="ttext"><b>99.5% SLA</b><br><small>Auto-refund on breach</small></span></div>'
+                '<div class="tbadge"><span class="icon">📝</span>'
+                '<span class="ttext"><b>Service terms</b><br><small>Scope and support agreed before onboarding</small></span></div>'
             )
     return f'<div class="trust-row">{"".join(badges)}</div>'
 
@@ -879,7 +900,7 @@ def _tier_includes_html(price_str: str) -> str:
     if "premium" in (price_str or "").lower():
         rows.append(("⬆ Premium", "Everything in Pro + done-for-you / team assets."))
     if has_ent:
-        rows.append(("🏢 Enterprise", "Custom SLA, volume pricing, onboarding."))
+        rows.append(("🏢 Enterprise", "Custom service terms, volume pricing, onboarding."))
     if not rows:
         return ""
     body = "".join(f'<tr><td>{t}</td><td>{d}</td></tr>' for t, d in rows)
@@ -1103,7 +1124,7 @@ async def product_page(slug: str, request: Request):
     landing_path = product.get("landing_path") or ""
     p = Path(landing_path)
     landing_name = p.name if p.exists() else ""
-    landing_url = f"/landing-assets/{landing_name}" if landing_name else ""
+    landing_url = f"/landing/{slug}.html" if (LANDING_DIR / f"{slug}.html").exists() else ""
 
     img = ""
     if product.get("image_path"):
@@ -1133,9 +1154,20 @@ async def product_page(slug: str, request: Request):
         roi_html = (f'<div class="roi-callout">💡 <b>Bottom line:</b> vs ~${cspend}/mo cloud GPU spend, '
                     f'this tier saves <b>${monthly_savings:.0f}/mo</b> '
                     f'(${annual:.0f}/yr, {pct:.0f}%) at a fixed '
-                    f'${price}/mo — isolation + monitoring + SLA included.</div>')
+                    f'${price}/mo — isolation + monitoring where applicable. '
+                    f'Confirm service terms before purchase.</div>')
     deliverables_html = _deliverables_html(slug)
     tier_html = _tier_includes_html(product.get("price", ""))
+    if slug in {"hardonia-compute-api-access", "private-inference-access"}:
+        support_html = '<h2>Support and assurance</h2><p>Usage and access are explained before activation, with a documented key or account handoff and a clear path for billing, capacity, and access questions. Credits and service limits follow the product terms.</p>'
+    elif slug in {"sentinel-note", "ops-draft", "ledger-draft", "hr-draft", "hardonia-enterpriser", "sovereign-supercharger"}:
+        support_html = '<h2>Support and assurance</h2><p>Onboarding covers the intended workflow, local deployment boundaries, and the review step before production use. The buyer pack and support path identify what is included; regulated decisions remain with the customer.</p>'
+    elif slug in {"sovereign-mission-intelligence", "sovereign-ai-audit", "sovereign-control-plane", "sovereign-ops-score", "autonomous-revenue-loop"}:
+        support_html = '<h2>Support and assurance</h2><p>This offer begins with human scoping. We document assumptions, responsibilities, evidence boundaries, and the agreed handoff so the engagement does not depend on unreviewed automation or implied guarantees.</p>'
+    elif slug.startswith("comfyui-") or slug in {"ai-portrait-studio", "ai-character-generator-kit", "ai-video-storyboard-studio", "ai-voice-clone-training-kit"}:
+        support_html = '<h2>Support and assurance</h2><p>Buyer documentation covers setup, workflow inputs, and expected outputs. Support focuses on reproducible local execution and troubleshooting the delivered workflow, not on promising identical results for every model or prompt.</p>'
+    else:
+        support_html = '<h2>Support and assurance</h2><p>The product page and buyer documents define the delivered materials, setup expectations, and support path. Contact us with the product name and the step that failed; never send credentials or private customer data.</p>'
 
     # Live Ops Dashboard visual (productized operational capability)
     import html as _html
@@ -1154,7 +1186,7 @@ async def product_page(slug: str, request: Request):
             f'<p class="dash-sub">Every node in this fleet feeds one real-time operational pane. '
             f'Verified fleet metrics, predictive signals, and financial modelling — the same engine running our own sovereign stack.</p>'
             f'<ul class="dash-feats">{_feat_html}</ul>'
-            '<a class="cta secondary" href="/request-access?product=' + slug + '">Request a live dashboard demo</a>'
+            '<a class="cta secondary" href="/contact?product=' + slug + '">Request a live dashboard demo</a>'
             '</div>'
         )
 
@@ -1281,6 +1313,7 @@ footer a{{color:var(--accent);text-decoration:none}}
 { f'<h2>Preview</h2><p><a class="cta secondary" href="{landing_url}" target="_blank" rel="noopener">Open full preview / details ↗</a></p>' if landing_url else '' }
 {deliverables_html}
 {tier_html}
+{support_html}
 <div class="trust">
 {trust_html}
 {urgency_html}
@@ -1308,7 +1341,7 @@ footer a{{color:var(--accent);text-decoration:none}}
         if has_enterprise:
             cta_html += f'<a class="cta enterprise" href="/contact?product={slug}">🏢 Talk to Enterprise →</a>'
     else:
-        cta_html += f'<a class="cta" href="/p/{slug}">Contact / Details</a>'
+        cta_html += f'<a class="cta" href="/contact?product={slug}">📩 Discuss this offer →</a>'
     html += f'<div class="cta-row">{cta_html}</div>'
     # Managed install add-on (flat $149/mo, cancel anytime, no new infra).
     if slug in ("sentinel-note", "hardonia-enterpriser"):
@@ -1411,6 +1444,34 @@ document.getElementById('f').addEventListener('submit', async (e)=>{{
     return HTMLResponse(html)
 
 
+# ── Public support hub ──────────────────────────────────────────────────────────
+@app.get("/support", response_class=HTMLResponse)
+async def support_page():
+    return HTMLResponse("""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Support — AI Automated Systems</title>
+<meta name='description' content='Product support, onboarding, troubleshooting, and private AI workflow help.'>
+<style>body{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:900px;margin:6vh auto;padding:0 20px;line-height:1.6}h1{font-size:2.2rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}.card{background:#fffdf8;border:1px solid #d8d3ca;border-radius:14px;padding:1.2rem}a{color:#0f766e}.muted{color:#66717d}.cta{display:inline-block;background:#0f766e;color:white;padding:.7rem 1rem;border-radius:9px;text-decoration:none;font-weight:700}</style></head><body>
+<p><a href='/'>← Back to store</a></p><h1>Support that helps you reach a working result</h1>
+<p class='muted'>Start with the product documentation, then use the support assistant for common questions. If the issue involves billing, access, delivery, or a failed result, send the exact product name and the step that failed.</p>
+<div class='grid'>
+<section class='card'><h2>Before purchase</h2><p>Compare products, verify the intended workflow, and check the public pricing and product page.</p><p><a href='/pricing'>View pricing</a> · <a href='/'>Browse products</a></p></section>
+<section class='card'><h2>After purchase</h2><p>Use the buyer documentation and download instructions included with your product. Keep your receipt and order email available.</p><p><a href='/contact'>Contact support</a></p></section>
+<section class='card'><h2>Private AI and compute</h2><p>For installation, workflow, or API questions, include your environment, product slug, and a safe description of the failure. Never send secrets or API keys.</p><p><a href='/contact?product=hardonia-compute-api-access'>Compute support</a></p></section>
+</div>
+<h2>Common questions</h2><div class='card'><h3>Is support automatic?</h3><p>The support assistant handles common product questions and escalates cases that require a human. Do not paste credentials, private keys, or customer data.</p><h3>What should I include?</h3><p>Product name, operating system, relevant version, exact error, and the last successful step. Redact tokens, passwords, private URLs, and personal data.</p><h3>Where are billing questions handled?</h3><p>Billing and refunds are handled through the payment provider and the order details associated with your purchase. We can help identify the correct product/support path.</p></div>
+<p><a class='cta' href='/contact'>Open a support request</a></p><script src='/support-widget.js' defer></script></body></html>""")
+
+
+# ── Payment completion ─────────────────────────────────────────────────────────
+@app.get("/thanks", response_class=HTMLResponse)
+async def thanks_page():
+    return HTMLResponse("""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Payment received — AI Automated Systems</title>
+<style>body{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:760px;margin:10vh auto;padding:0 20px;line-height:1.6}.card{background:#fffdf8;border:1px solid #d8d3ca;border-radius:14px;padding:2rem}a{color:#0f766e}.cta{display:inline-block;background:#0f766e;color:white;padding:.7rem 1rem;border-radius:9px;text-decoration:none;font-weight:700}</style></head><body><div class='card'><h1>Payment received</h1><p>Thank you. Stripe has recorded your payment. Your order email is the source of truth for the next delivery step.</p><p>For digital products, fulfillment is processed from the verified payment event. For subscriptions and assurance services, scope and onboarding instructions follow separately.</p><p><a class='cta' href='/support'>Open support</a> <a href='/'>Return to the store</a></p></div></body></html>""")
+
+
 # ── Enterprise contact ─────────────────────────────────────────────────────────
 @app.get("/contact", response_class=HTMLResponse)
 async def contact_page(request: Request):
@@ -1429,9 +1490,12 @@ a{{color:#0f766e}}</style></head><body><div class='card'>
 <h1>🏢 Enterprise & custom</h1>
 <p class='muted'>Tell us about your stack and volume. We reply within 1 business day with a tailored plan and onboarding.</p>
 <form id='contact-form'>
+<label for='cname'>Your name</label>
 <input name='name' id='cname' placeholder='Your name' required>
+<label for='cemail'>Your email</label>
 <input name='email' id='cemail' type='email' placeholder='you@company.com' required>
-<textarea name='needs' id='cneeds' rows=5 placeholder='What are you building? Volume, SLA, compliance needs...'></textarea>
+<label for='cneeds'>What are you building?</label>
+<textarea name='needs' id='cneeds' rows=5 placeholder='Volume, SLA, compliance needs...'></textarea>
 <button type='submit'>Send enterprise inquiry →</button>
 <p id='cmsg' class='muted'></p>
 </form>
@@ -1584,14 +1648,14 @@ async def pricing_page():
     products = store.list_products(settings.db_path)
     rows = []
     for p in products:
-        if p.get("status") != "ready":
+        if p.get("status") not in {"ready", "early-access"}:
             continue
         slug = _html.escape(str(p.get("slug") or ""), quote=True)
         name = _html.escape(str(p.get("name") or ""))
         price = _html.escape(str(p.get("price") or ""))
         checkout = _safe_external_url(p.get("checkout_url"))
-        cta = f"<a class='cta' href='{_html.escape(checkout, quote=True)}' rel='noopener'>Buy — {price}</a>" if checkout \
-            else f"<a class='cta' href='/contact?product={slug}'>Contact</a>"
+        cta = f"<a class='cta' href='{_html.escape(checkout, quote=True)}' target='_blank' rel='noopener'>Buy — {price}</a>" if checkout \
+            else f"<a class='cta' href='/contact?product={slug}'>Discuss — {price}</a>"
         rows.append(f"<tr><td><a href='/p/{slug}'>{name}</a></td><td>{price}</td><td>{cta}</td></tr>")
     table = "\n".join(rows)
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
@@ -1605,30 +1669,37 @@ async def pricing_page():
 <style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:900px;margin:6vh auto;padding:0 20px;line-height:1.6}}
 h1{{font-size:2rem}} table{{width:100%;border-collapse:collapse;margin-top:1rem}} th,td{{text-align:left;padding:.7rem;border-bottom:1px solid #d8d3ca}}
 .cta{{background:#0ea5e9;color:#fff;padding:.5rem .9rem;border-radius:8px;text-decoration:none;font-weight:700}}
-a{{color:#0f766e}}</style></head><body>
-<h1>💳 All products & bundles</h1>
-<p class='muted'>One-time payments. Lifetime access. Stripe-secured. Need volume or custom? <a href='/contact'>Talk to us</a>.</p>
+a{{color:#0f766e}} @media(max-width:600px){{table{{font-size:.85rem}} th,td{{padding:.4rem .5rem}}}}
+</style></head><body>
+<nav><a href='/'>← The Platform</a> · <a href='/pricing'>Pricing</a> · <a href='/contact'>Talk to us</a></nav>
+<main>
+<h1>💳 Products, bundles &amp; services</h1>
+<p class='muted'>Transparent pricing for ready-to-buy digital products and scoped early-access implementations. Stripe-secured checkout where available; custom scope goes through a human-reviewed discovery call. <a href='/contact'>Talk to us</a>.</p>
 <table><thead><tr><th>Product</th><th>Price</th><th></th></tr></thead><tbody>
 {table}
 </tbody></table>
-<p class='muted'><a href='/'>← Back to home</a></p>
+</main>
+<footer><p><a href='/'>← Back to home</a></p></footer>
 </body></html>"""
     return html
 
 
 @app.get("/metrics/funnel", response_class=PlainTextResponse)
 async def funnel_metrics(_: None = Depends(require_operator)):
-    """Conversion funnel: events -> leads -> purchases, real data."""
+    """Conversion funnel from local telemetry plus verified commerce events."""
     import json as _json
     import sqlite3 as _sql
     db = _sql.connect(settings.db_path)
     events = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
     leads = db.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
-    purchases = db.execute("SELECT COUNT(*) FROM purchases").fetchone()[0]
-    rev = db.execute("SELECT COALESCE(SUM(amount_cents),0) FROM purchases").fetchone()[0]
+    buy_clicks = db.execute("SELECT COUNT(*) FROM events WHERE event_type='buy_click'").fetchone()[0]
+    checkout_redirects = db.execute("SELECT COUNT(*) FROM events WHERE event_type='checkout_redirect'").fetchone()[0]
+    commerce = db.execute("SELECT COUNT(*), COALESCE(SUM(amount_cents),0) FROM commerce_events WHERE status IN ('paid','completed','fulfilled')").fetchone()
     db.close()
-    data = {"events": events, "leads": leads, "purchases": purchases,
-            "revenue_cents": rev, "ts": datetime.datetime.now(datetime.UTC).isoformat()}
+    data = {"events": events, "leads": leads, "buy_clicks": buy_clicks,
+            "checkout_redirects": checkout_redirects, "verified_purchases": commerce[0],
+            "verified_revenue_cents": commerce[1], "truth_source": "commerce_events",
+            "ts": datetime.datetime.now(datetime.UTC).isoformat()}
     return _json.dumps(data)
 
 
@@ -1793,19 +1864,17 @@ async def gpu_status():
 async def roi_calc(cloud_spend: float = 500.0, hours: int = 40, tier: str = "starter"):
     """Deterministic bottom-line calculator.
 
-    Compares a prospect's current cloud GPU cost to our fixed platform tier.
+    Compares a prospect's current cloud GPU cost to the public illustrative platform tiers.
     Assumptions are explicit and conservative (no theatrical numbers):
-      - Cloud effective rate = cloud_spend / hours  (their real blended $/hr)
-      - Our tiers are fixed-price and include isolation + monitoring + SLA:
-          starter $49/mo ~ 20 GPU-hr, scale $199/mo ~ 100 GPU-hr,
-          concierge $497/mo ~ managed 200 GPU-hr equivalent
+      - Cloud effective rate = cloud_spend / hours (their real blended $/hr)
+      - Illustrative tiers: starter $20/mo, scale $99/mo, concierge $299/mo
+      - This is a planning estimate, not a savings guarantee or uptime promise.
       - We do NOT count their engineering time saved (separate, larger win).
-    Returns observable, auditable numbers.
     """
     TIERS = {
-        "starter": {"price": 49, "gpu_hr": 20},
-        "scale": {"price": 199, "gpu_hr": 100},
-        "concierge": {"price": 497, "gpu_hr": 200},
+        "starter": {"price": 20, "gpu_hr": 20},
+        "scale": {"price": 99, "gpu_hr": 100},
+        "concierge": {"price": 299, "gpu_hr": 200},
     }
     t = TIERS.get(tier, TIERS["starter"])
     cloud_rate = cloud_spend / max(hours, 1)
@@ -1822,7 +1891,7 @@ async def roi_calc(cloud_spend: float = 500.0, hours: int = 40, tier: str = "sta
         "monthly_savings": round(monthly_savings, 2),
         "annual_savings": round(annual_savings, 2),
         "savings_pct": round(pct, 1),
-        "note": "Fixed price includes isolation, monitoring, SLA. Excludes engineering-time saved.",
+        "note": "Planning estimate only; service scope, capacity, and support terms vary by product.",
     }
 
 
@@ -1860,7 +1929,7 @@ async def public_status():
         "self_heal": {"last_watchdog_event": last_watchdog},
         "products_live": recent,
         "trust": ["UFW default-deny", "LiteLLM loopback", "Cloudflare tunnel",
-                  "SOC2-aligned controls", "99.5% SLA on bonded tiers"],
+                  "Live health and watchdog signals"],
         "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
     }
 
@@ -2031,6 +2100,9 @@ async def buy_redirect(slug: str, request: Request):
     if not checkout:
         return RedirectResponse(url=f"/p/{slug}#contact", status_code=302)
     _record_event("buy_click", page=request.url.path, product_slug=slug,
+                  checkout_url=checkout, session_id=_session_id(request),
+                  referrer=request.headers.get("referer"))
+    _record_event("checkout_redirect", page=request.url.path, product_slug=slug,
                   checkout_url=checkout, session_id=_session_id(request),
                   referrer=request.headers.get("referer"))
     return RedirectResponse(url=checkout, status_code=302)

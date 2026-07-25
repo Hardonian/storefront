@@ -1,35 +1,24 @@
 # Security Policy
 
-## Reporting Vulnerabilities
+## Reporting a Vulnerability
 
-If you discover a security vulnerability, please report it responsibly.
-Do not open a public issue for security findings.
+If you discover a security vulnerability within this project, please report it responsibly.
+
+**Do NOT open a public GitHub issue for security vulnerabilities.**
+
+Email security issues to: **security@hardonia.store**
+
+Please include:
+- Description of the vulnerability
+- Steps to reproduce
+- Potential impact
+- Suggested fix (if any)
+
+## Response
+
+We aim to acknowledge receipt within 48 hours and provide a remediation timeline within 7 days.
 
 ## Scope
 
-This policy covers all repositories in The Platform ecosystem:
-- hardonia-checkout-api: Payment processing, Stripe integration
-- ai-lab-audit-api: Public audit API
-- storefront: Customer-facing storefront
-- hardonia-compute-api: GPU compute service
+This security policy applies to the latest release of this project.
 
-## Security Measures
-
-- All webhook endpoints verify Stripe signatures
-- All API endpoints require API keys or authentication
-- Database queries use parameterized statements (no SQL injection)
-- CORS is configured to allow only known origins
-- Rate limiting is active on all public endpoints
-- TLS is enforced on all public routes
-
-## Verified Endpoints
-
-| Endpoint | Auth | Verification |
-|----------|------|-------------|
-| /webhook/stripe | Stripe signature | Required |
-| /api/* | API key | Required |
-| /health | None | Open |
-
-## Last Reviewed
-
-2026-07-24

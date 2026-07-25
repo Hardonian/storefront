@@ -382,7 +382,7 @@ async def proof_score_api():
     try:
         data = json.loads(PROOF_PUBLIC.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        raise HTTPException(status_code=503, detail="Proof Score is temporarily unavailable")
+        raise HTTPException(status_code=503, detail="Proof Score is temporarily unavailable") from None
     return JSONResponse(data, headers={"Cache-Control": "public, max-age=300"})
 
 
@@ -395,7 +395,8 @@ async def proof_score_page():
         data = json.loads(PROOF_PUBLIC.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return HTMLResponse("<h1>Proof Score temporarily unavailable</h1>", status_code=503)
-    esc = lambda value: _html.escape(str(value))
+    def esc(value):
+        return _html.escape(str(value))
     scores = data.get("sub_scores", {})
     benchmark = data.get("benchmark", {})
     cards = "".join(f"<div class='card'><b>{esc(k.title())}</b><strong>{esc(v)}/100</strong></div>" for k, v in scores.items())
@@ -1121,9 +1122,6 @@ async def product_page(slug: str, request: Request):
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    landing_path = product.get("landing_path") or ""
-    p = Path(landing_path)
-    landing_name = p.name if p.exists() else ""
     landing_url = f"/landing/{slug}.html" if (LANDING_DIR / f"{slug}.html").exists() else ""
 
     img = ""

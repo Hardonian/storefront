@@ -85,6 +85,19 @@ def test_homepage_has_complete_seo_metadata():
     assert 'application/ld+json' in r.text
 
 
+def test_hardonia_host_gets_catalog_canonical_metadata():
+    home = client.get("/", headers={"host": "hardonia.store"})
+    assert home.status_code == 200
+    assert '<link rel="canonical" href="https://hardonia.store/">' in home.text
+    assert '"name":"Hardonia Store"' in home.text
+    product = client.get("/p/comfyui-workflow-pack", headers={"host": "hardonia.store"})
+    assert product.status_code == 200
+    assert '<link rel="canonical" href="https://hardonia.store/p/comfyui-workflow-pack">' in product.text
+    assert 'https://aiautomatedsystems.ca/p/comfyui-workflow-pack' not in product.text
+    robots = client.get("/robots.txt", headers={"host": "hardonia.store"})
+    assert "Sitemap: https://hardonia.store/sitemap.xml" in robots.text
+
+
 def test_public_catalog_never_leaks_host_paths():
     r = client.get("/api/products")
     assert r.status_code == 200
@@ -117,6 +130,15 @@ def test_pricing_and_legal_pages_render():
         r = client.get(f"/legal/{doc}")
         assert r.status_code == 200
         assert "<h1>" in r.text
+
+
+def test_legacy_request_access_redirects_to_contact_with_query_preserved():
+    response = client.get(
+        "/request-access?product=sovereign-control-plane",
+        follow_redirects=False,
+    )
+    assert response.status_code == 307
+    assert response.headers["location"] == "/contact?product=sovereign-control-plane"
 
 
 def test_funnel_metrics_are_operator_only(monkeypatch):
@@ -231,7 +253,10 @@ def test_fulfillment_page_is_csp_safe_and_has_recoverable_buyer_states():
 
 
 def test_customer_javascript_has_no_innerhtml_sinks():
-    assert "innerHTML" not in client.get("/support-widget.js").text
+    widget = client.get("/support-widget.js")
+    assert "innerHTML" not in widget.text
+    assert "\\\\\\\\'" not in widget.text
+    assert "I\\'m AU" in widget.text
     assert "innerHTML" not in client.get("/tools/gpu-cost-calculator").text
 
 

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU Job API — Run AI Workloads on Private GPUs | AI Automated Systems</title>
+<meta name="description" content="Authenticated GPU job API for chat, image, and workflow jobs. Prepaid credits, signed delivery, webhook callbacks. No metered billing.">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;color:#1f2933;background:#f5f1e8;line-height:1.6}
+.hero{background:linear-gradient(135deg,#581c87 0%,#1e1b4b 100%);color:#fff;padding:80px 24px;text-align:center}
+.hero h1{font-size:clamp(32px,5vw,56px);line-height:1.1;margin-bottom:16px}
+.hero p{font-size:20px;opacity:.9;max-width:600px;margin:0 auto 32px}
+.cta{display:inline-block;background:#f59e0b;color:#1f2933;padding:16px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:18px;transition:transform .2s}
+.cta:hover{transform:translateY(-2px)}
+.section{max-width:800px;margin:0 auto;padding:60px 24px}
+.section h2{font-size:28px;color:#581c87;margin-bottom:24px}
+.card{background:#fffdf8;border:1px solid #d8d3ca;border-radius:12px;padding:24px;margin:16px 0}
+.card h3{color:#581c87;margin-bottom:8px}
+code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:14px}
+pre{background:#1e1b4b;color:#e2e8f0;padding:20px;border-radius:8px;overflow-x:auto;font-size:14px;line-height:1.5}
+pre .comment{color:#94a3b8}
+pre .keyword{color:#c084fc}
+pre .string{color:#86efac}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
+.grid .card{text-align:center}
+.grid .card .icon{font-size:32px;margin-bottom:8px}
+footer{background:#1e1b4b;color:#9ca3af;padding:32px 24px;text-align:center;font-size:14px}
+footer a{color:#c084fc}
+</style>
+</head>
+<body>
+<div class="hero">
+  <h1>Run AI jobs on private GPUs. No cloud bills.</h1>
+  <p>Authenticated job API for chat, image generation, and workflow execution. Prepaid credits. Signed delivery. Webhook callbacks.</p>
+  <a href="https://aiautomatedsystems.ca/p/hardonia-compute-api-access" class="cta">Get API Access →</a>
+</div>
+
+<div class="section">
+  <h2>Fleet specs</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="icon">🖥️</div>
+      <h3>V100 16GB</h3>
+      <p>SXM2. Best for large context inference and batch jobs.</p>
+    </div>
+    <div class="card">
+      <div class="icon">🖥️</div>
+      <h3>P40 24GB</h3>
+      <p>High VRAM. Best for large models and image generation.</p>
+    </div>
+    <div class="card">
+      <div class="icon">🖥️</div>
+      <h3>RTX 3060 12GB</h3>
+      <p>Fast inference. Best for low-latency chat and small models.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>API example</h2>
+  <pre><span class="comment"># Create a chat job</span>
+curl -X POST https://your-instance.com/api/v1/jobs \
+  -H "X-API-Key: your-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "chat",
+    "model": "hermes3:latest",
+    "prompt": "Explain quantum computing in 3 sentences",
+    "max_tokens": 200
+  }'
+
+<span class="comment"># Response includes job_id and credit cost</span>
+{
+  "job_id": "job_abc123",
+  "status": "queued",
+  "credits_cost": 1,
+  "estimated_time_s": 2.3
+}
+
+<span class="comment"># Get results with signed delivery</span>
+curl https://your-instance.com/api/v1/delivery/{token}</pre>
+</div>
+
+<div class="section">
+  <h2>How it works</h2>
+  <div class="card">
+    <h3>1. Buy credits</h3>
+    <p>Prepaid credit model via Stripe. No metered billing. No surprise bills. Credits are provisioned after verified payment.</p>
+  </div>
+  <div class="card">
+    <h3>2. Create jobs</h3>
+    <p>Authenticated API with API-key isolation. Each job specifies model, prompt, and execution bounds. Credits are consumed atomically.</p>
+  </div>
+  <div class="card">
+    <h3>3. Get results</h3>
+    <p>Signed delivery URLs with expiration. Webhook callbacks for async jobs. Full audit trail in the usage ledger.</p>
+  </div>
+</div>
+
+<div class="section" style="text-align:center">
+  <h2>Pricing</h2>
+  <p style="margin-bottom:16px">Credits are provisioned after Stripe checkout. Volume discounts available for teams.</p>
+  <a href="https://aiautomatedsystems.ca/p/hardonia-compute-api-access" class="cta">Get API Access →</a>
+</div>
+
+<footer>
+  <p>AI Automated Systems · Toronto, Canada · <a href="https://aiautomatedsystems.ca">aiautomatedsystems.ca</a></p>
+  <p style="margin-top:8px"><a href="https://aiautomatedsystems.ca/legal/terms-of-service">Terms</a> · <a href="https://aiautomatedsystems.ca/legal/privacy-policy">Privacy</a> · <a href="https://aiautomatedsystems.ca/legal/refund-policy">Refunds</a></p>
+</footer>
+</body>
+</html>

@@ -111,6 +111,23 @@ settings = Settings()
 settings.templates_dir = str(Path(__file__).resolve().parent / "templates")
 logger = logging.getLogger("storefront")
 
+PUBLIC_BRANDS = {
+    "aiautomatedsystems.ca": ("https://aiautomatedsystems.ca", "AI Automated Systems"),
+    "www.aiautomatedsystems.ca": ("https://aiautomatedsystems.ca", "AI Automated Systems"),
+    "hardonia.store": ("https://hardonia.store", "Hardonia Store"),
+    "www.hardonia.store": ("https://hardonia.store", "Hardonia Store"),
+}
+
+
+def public_brand(request: Request) -> tuple[str, str]:
+    """Return the canonical public origin for an allowed storefront hostname.
+
+    Unknown Host headers deliberately fall back to the consultancy origin so a
+    forged Host cannot create arbitrary canonical URLs or poison SEO metadata.
+    """
+    host = (request.url.hostname or "").lower().rstrip(".")
+    return PUBLIC_BRANDS.get(host, PUBLIC_BRANDS["aiautomatedsystems.ca"])
+
 
 def require_operator(x_api_key: str | None = Header(None)) -> None:
     """Fail closed for internal metrics, lead, and analytics surfaces."""
@@ -153,8 +170,15 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         path = request.url.path
+        # Never cache API, webhook, payment-result, or customer-specific download responses.
+        # These may contain entitlement, fulfillment, or order/session state.
+        if (path.startswith('/api/') or path.startswith('/webhook/')
+                or path in ('/order/success', '/order/cancel')
+                or path.startswith('/download/')):
+            response.headers['Cache-Control'] = 'no-store'
+            response.headers['Pragma'] = 'no-cache'
         # Long-cache immutable static assets
-        if path.startswith('/product-assets/'):
+        elif path.startswith('/product-assets/'):
             response.headers['Cache-Control'] = 'public, max-age=3600'
         elif path.startswith('/landing-assets/'):
             response.headers['Cache-Control'] = 'public, max-age=86400'
@@ -374,6 +398,87 @@ async def health():
     return {"status": "ok", "service": "storefront", "version": app.version}
 
 
+@app.get("/status", response_class=HTMLResponse)
+@app.get("/status.json", response_class=JSONResponse)
+async def stack_status(format: str = "html"):
+    """Public AI-stack status page + JSON. Runs the live operator guards.
+
+    No auth: this is an operator transparency surface. It only exposes service
+    health, never secrets, logs, or customer data.
+    """
+    import subprocess as _sp
+
+    def run(cmd):
+        try:
+            r = _sp.run(cmd, capture_output=True, text=True, timeout=60, shell=True)
+            return (r.stdout or r.stderr).strip()
+        except Exception as e:  # noqa: BLE001
+            return f"error: {e}"
+
+    lab = run("/home/scott/.local/bin/lab-stack 2>/dev/null")
+    venv = run("tail -1 /home/scott/ai-lab/logs/runtime-venv-guard.log 2>/dev/null")
+    secret = run("tail -1 /home/scott/ai-lab/reports/autonomy/secret-leak-guard.log 2>/dev/null")
+    hermes_rt = run("bash /home/scott/.hermes/scripts/hermes-runtime-guard.sh --report 2>/dev/null")
+    all_green = "ALL GREEN" in lab
+    failed = run("systemctl --user list-units --type=service --state=failed --no-legend 2>/dev/null | wc -l").strip()
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    data = {
+        "status": "operational" if (all_green and failed == "0") else "degraded",
+        "generated_at": ts,
+        "all_green": all_green,
+        "failed_units": int(failed) if failed.isdigit() else -1,
+        "guards": {
+            "runtime_venv": venv,
+            "secret_leak": secret,
+            "hermes_runtime": hermes_rt,
+        },
+        "stack": lab,
+    }
+    if format == "json":
+        return JSONResponse(data, headers={"Cache-Control": "public, max-age=60"})
+
+    badge = "🟢 ALL GREEN" if all_green else "🔴 ISSUES"
+    rows = "".join(
+        f"<tr><td><code>{_html.escape(l.split('OK')[0].strip() or l.strip()[:30])}</code></td>"
+        f"<td class='{'ok' if 'OK' in l else 'bad'}'>{_html.escape(l.strip())}</td></tr>"
+        for l in lab.splitlines() if l.strip() and "===" not in l and "GPU" not in l
+        and "Stack Status" not in l
+    )
+    html_doc = f"""<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Hardonia — AI Stack Status</title>
+<style>
+ body{{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:#0d1117;color:#e6edf3}}
+ header{{padding:28px 20px 12px;border-bottom:1px solid #21262d}}
+ h1{{margin:0;font-size:20px}} .badge{{font-size:14px;padding:3px 10px;border-radius:999px;
+   background:{'#1f6f3a' if all_green else '#6e1f1f'};color:#fff;margin-left:10px}}
+ main{{padding:20px;max-width:860px;margin:auto}}
+ table{{width:100%;border-collapse:collapse;margin-top:14px}}
+ td{{padding:8px 10px;border-bottom:1px solid #21262d;font-size:13px}}
+ .ok{{color:#3fb950}}.badge-ok{{color:#3fb950}}.badge-bad{{color:#f85149}}
+ .guards{{margin-top:18px;font-size:13px;color:#9da7b3}}
+ footer{{padding:18px 20px;color:#6e7681;font-size:12px}}
+ a{{color:#58a6ff}}
+</style></head>
+<body>
+<header><h1>Hardonia — AI Stack Status<span class=badge>{badge}</span></h1>
+<div style="color:#9da7b3;font-size:13px">Generated {_html.escape(ts)} · local-first · zero cloud</div></header>
+<main>
+<table><tbody>{rows}</tbody></table>
+<div class=guards>
+ <div>runtime-venv-guard: <span class='{'badge-ok' if 'OK' in venv else 'badge-bad'}'>{_html.escape(venv)}</span></div>
+ <div>secret-leak-guard: <span class='{'badge-ok' if 'OK' in secret else 'badge-bad'}'>{_html.escape(secret)}</span></div>
+ <div>hermes-runtime: <span class='{'badge-ok' if 'OK' in hermes_rt else 'badge-bad'}'>{_html.escape(hermes_rt)}</span></div>
+ <div>failed systemd units: <b>{_html.escape(failed)}</b></div>
+</div>
+<p style="margin-top:22px"><a href="/status.json">JSON</a> · <a href="https://hardonia.store">hardonia.store</a></p>
+</main>
+<footer>Private, local-first AI. Your data never leaves the building.</footer>
+</body></html>"""
+    return HTMLResponse(html_doc, headers={"Cache-Control": "public, max-age=60"})
+
+
 @app.get("/api/proof-score")
 async def proof_score_api():
     """Public aggregate Proof Score; never exposes private evidence or secrets."""
@@ -462,16 +567,16 @@ AU_WIDGET_JS = r"""
   document.getElementById('au-x').onclick=function(){box.style.display='none';};
   var inp=document.getElementById('au-in'), log=document.getElementById('au-log');
   function add(who,text){var d=document.createElement('div');d.className=who;var s=document.createElement('span');s.textContent=text;d.appendChild(s);log.appendChild(d);log.scrollTop=log.scrollHeight;}
-  add('bot','👋 I\\'m AU, Hardonia\\'s auth & access assistant. Ask about API keys, 403/429 errors, credits, or access.');
+  add('bot','👋 I\'m AU, Hardonia\'s auth & access assistant. Ask about API keys, 403/429 errors, credits, or access.');
   inp.addEventListener('keydown',function(e){
     if(e.key!=='Enter'||!inp.value.trim())return;
     var q=inp.value.trim();inp.value='';add('me',q);
     fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})})
       .then(function(r){return r.json();}).then(function(d){
-        if(d.escalated){add('bot', d.message||'Escalated to a human — we\\'ll reply within 1 business day.');}
+        if(d.escalated){add('bot', d.message||'Escalated to a human — we\'ll reply within 1 business day.');}
         else if(d.answer){add('bot', d.answer.replace(/^— AU.*/m,'').trim());}
         else {add('bot','Something went wrong — please open a GitHub issue.');}
-      }).catch(function(){add('bot','Support is briefly unavailable. Open a GitHub issue and we\\'ll reply within 1 business day.');});
+      }).catch(function(){add('bot','Support is briefly unavailable. Open a GitHub issue and we\'ll reply within 1 business day.');});
   });
 })();
 """
@@ -569,21 +674,22 @@ async def support_widget_js():
 # ── SEO / syndication surface (no personal identity; crawlable + feedable) ──────
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
-async def robots_txt():
+async def robots_txt(request: Request):
+    base, _ = public_brand(request)
     body = (
         "User-agent: *\n"
         "Allow: /\n"
         "Disallow: /api/\n"
         "Disallow: /legal/\n"
-        "Sitemap: https://aiautomatedsystems.ca/sitemap.xml\n"
+        f"Sitemap: {base}/sitemap.xml\n"
     )
     return PlainTextResponse(body)
 
 
 @app.get("/sitemap.xml", response_class=PlainTextResponse)
-async def sitemap_xml():
+async def sitemap_xml(request: Request):
     products = store.list_products(settings.db_path)
-    base = "https://aiautomatedsystems.ca"
+    base, _ = public_brand(request)
     lastmod = datetime.datetime.now(datetime.UTC).date().isoformat()
     urls: list[tuple[str, str, str | None]] = [
         (f"{base}/", "daily", None),
@@ -737,6 +843,7 @@ def _safe_external_url(value: object) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
+    base, site_name = public_brand(request)
     products = store.list_products(settings.db_path)
     # Rewrite absolute image_path -> served /product-assets/ URL so covers load.
     for p in products:
@@ -765,6 +872,8 @@ async def index(request: Request):
             featured_products=featured_products,
             catalog_products=catalog_products,
             title="AI Automated Systems — Tools, Audits & Workflows",
+            site_base=base,
+            site_name=site_name,
             hero_variant=hero_variant,
             cta_variant=cta_variant,
             newsletter_enabled=flags.get("newsletter_enabled", True),
@@ -1199,8 +1308,9 @@ async def product_page(slug: str, request: Request):
     offer_html = _html.escape(str(product.get("offer") or ""))
     price_html = _html.escape(str(product.get("price") or ""))
     status_html = _html.escape(str(product.get("status") or "draft"))
-    canonical = f"https://aiautomatedsystems.ca/p/{slug}"
-    image_absolute = f"https://aiautomatedsystems.ca{img}" if img else ""
+    base, site_name = public_brand(request)
+    canonical = f"{base}/p/{slug}"
+    image_absolute = f"{base}{img}" if img else ""
     price_match = re.search(r"\d+(?:\.\d{1,2})?", str(product.get("price") or ""))
     product_schema = {
         "@context": "https://schema.org",
@@ -1233,12 +1343,12 @@ async def product_page(slug: str, request: Request):
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{name_html} — AI Automated Systems</title>
+<title>{name_html} — {site_name}</title>
 <meta name="description" content="{description_html}">
 <link rel="canonical" href="{canonical}">
 <meta property="og:type" content="product">
-<meta property="og:site_name" content="AI Automated Systems">
-<meta property="og:title" content="{name_html} — AI Automated Systems">
+<meta property="og:site_name" content="{site_name}">
+<meta property="og:title" content="{name_html} — {site_name}">
 <meta property="og:description" content="{description_html}">
 <meta property="og:url" content="{canonical}">
 {f'<meta property="og:image" content="{image_absolute}">' if image_absolute else ''}
@@ -1447,15 +1557,16 @@ document.getElementById('f').addEventListener('submit', async (e)=>{{
 async def support_page():
     return HTMLResponse("""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
-<title>Support — AI Automated Systems</title>
+<title>Support and service operations — AI Automated Systems</title>
 <meta name='description' content='Product support, onboarding, troubleshooting, and private AI workflow help.'>
-<style>body{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:900px;margin:6vh auto;padding:0 20px;line-height:1.6}h1{font-size:2.2rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}.card{background:#fffdf8;border:1px solid #d8d3ca;border-radius:14px;padding:1.2rem}a{color:#0f766e}.muted{color:#66717d}.cta{display:inline-block;background:#0f766e;color:white;padding:.7rem 1rem;border-radius:9px;text-decoration:none;font-weight:700}</style></head><body>
+<style>body{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:900px;margin:6vh auto;padding:0 20px;line-height:1.6}h1{font-size:2.2rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}.card{background:#fffdf8;border:1px solid #d8d3ca;border-radius:14px;padding:1.2rem}a{color:#0f766e}.muted{color:#66717d}.cta{display:inline-block;background:#0f766e;color:white;padding:.7rem 1rem;border-radius:9px;text-decoration:none;font-weight:700}.service-map{margin:1.5rem 0;padding:1rem;background:linear-gradient(135deg,#eef6f3,#fff8ed);border:1px solid #99d5cf;border-radius:14px}.service-map svg{display:block;width:100%;height:auto}.service-map figcaption{font-size:.84rem;color:#66717d;margin-top:.6rem}</style></head><body>
 <p><a href='/'>← Back to store</a></p><h1>Support that helps you reach a working result</h1>
-<p class='muted'>Start with the product documentation, then use the support assistant for common questions. If the issue involves billing, access, delivery, or a failed result, send the exact product name and the step that failed.</p>
+<p class='muted'>Start with the product documentation, then use the support assistant for common questions. If the issue involves billing, access, delivery, or a failed result, send the exact product name and the step that failed. Support follows the documented severity path; no unsupported uptime or response guarantee is implied.</p>
+<figure class='service-map' aria-labelledby='service-map-caption'><svg viewBox='0 0 860 150' role='img' aria-label='Support request flows through documented answers, live service evidence, and human escalation'><defs><linearGradient id='flow' x1='0' x2='1'><stop stop-color='#0f766e'/><stop offset='1' stop-color='#b45309'/></linearGradient></defs><rect x='10' y='30' width='190' height='86' rx='14' fill='#fffdf8' stroke='#99d5cf'/><text x='105' y='63' text-anchor='middle' font-weight='700' fill='#1f2933'>Customer request</text><text x='105' y='88' text-anchor='middle' font-size='13' fill='#66717d'>product + symptom</text><path d='M205 73h80' stroke='url(#flow)' stroke-width='4'/><rect x='295' y='30' width='190' height='86' rx='14' fill='#fffdf8' stroke='#99d5cf'/><text x='390' y='63' text-anchor='middle' font-weight='700' fill='#1f2933'>Documented answer</text><text x='390' y='88' text-anchor='middle' font-size='13' fill='#66717d'>FAQ + buyer docs</text><path d='M490 73h80' stroke='url(#flow)' stroke-width='4'/><rect x='580' y='30' width='270' height='86' rx='14' fill='#fffdf8' stroke='#d8d3ca'/><text x='715' y='63' text-anchor='middle' font-weight='700' fill='#1f2933'>Evidence or escalation</text><text x='715' y='88' text-anchor='middle' font-size='13' fill='#66717d'>live status · human review</text></svg><figcaption id='service-map-caption'>A support answer is grounded in published documentation and current service state; uncertain or sensitive cases go to a human.</figcaption></figure>
 <div class='grid'>
 <section class='card'><h2>Before purchase</h2><p>Compare products, verify the intended workflow, and check the public pricing and product page.</p><p><a href='/pricing'>View pricing</a> · <a href='/'>Browse products</a></p></section>
 <section class='card'><h2>After purchase</h2><p>Use the buyer documentation and download instructions included with your product. Keep your receipt and order email available.</p><p><a href='/contact'>Contact support</a></p></section>
-<section class='card'><h2>Private AI and compute</h2><p>For installation, workflow, or API questions, include your environment, product slug, and a safe description of the failure. Never send secrets or API keys.</p><p><a href='/contact?product=hardonia-compute-api-access'>Compute support</a></p></section>
+<section class='card'><h2>Private AI and compute</h2><p>For installation, workflow, or API questions, include your environment, product slug, and a safe description of the failure. Never send secrets or API keys.</p><p><a href='/contact?product=hardonia-compute-api-access'>Compute support</a> · <a href='/proof-score'>View operational evidence</a></p></section>
 </div>
 <h2>Common questions</h2><div class='card'><h3>Is support automatic?</h3><p>The support assistant handles common product questions and escalates cases that require a human. Do not paste credentials, private keys, or customer data.</p><h3>What should I include?</h3><p>Product name, operating system, relevant version, exact error, and the last successful step. Redact tokens, passwords, private URLs, and personal data.</p><h3>Where are billing questions handled?</h3><p>Billing and refunds are handled through the payment provider and the order details associated with your purchase. We can help identify the correct product/support path.</p></div>
 <p><a class='cta' href='/contact'>Open a support request</a></p><script src='/support-widget.js' defer></script></body></html>""")
@@ -1471,6 +1582,15 @@ async def thanks_page():
 
 
 # ── Enterprise contact ─────────────────────────────────────────────────────────
+@app.get("/request-access", include_in_schema=False)
+async def legacy_request_access(request: Request):
+    """Preserve legacy sales links while keeping /contact canonical."""
+    destination = "/contact"
+    if request.url.query:
+        destination = f"{destination}?{request.url.query}"
+    return RedirectResponse(url=destination, status_code=307)
+
+
 @app.get("/contact", response_class=HTMLResponse)
 async def contact_page(request: Request):
     product = request.query_params.get("product", "")
@@ -1604,6 +1724,43 @@ async def api_lead(request: Request, payload: dict = Body(default={})):
     except Exception:
         logger.exception("lead capture failed")
         return {"ok": False, "reason": "temporarily_unavailable"}
+    return {"ok": True}
+
+
+@app.post("/api/analytics/event")
+async def analytics_event(request: Request):
+    """First-party analytics event capture. Fail-soft, no PII stored."""
+    import sqlite3 as _sql
+    try:
+        body = await request.json()
+        event_type = str(body.get("type") or body.get("event_type") or "unknown")[:80]
+        page = str(body.get("page") or "")[:255]
+        product_slug = str(body.get("product_slug") or "")[:120]
+        session_id = str(body.get("sid") or body.get("session_id") or "")[:80]
+        referrer = str(body.get("referrer") or request.headers.get("referer") or "")[:255]
+        utm_source = str(body.get("utm_source") or "")[:80]
+        utm_medium = str(body.get("utm_medium") or "")[:80]
+        utm_campaign = str(body.get("utm_campaign") or "")[:80]
+
+        db = _sql.connect(str(settings.db_path))
+        db.execute("""CREATE TABLE IF NOT EXISTS analytics_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, event_type TEXT, page TEXT,
+            product_slug TEXT, session_id TEXT, referrer TEXT,
+            utm_source TEXT, utm_medium TEXT, utm_campaign TEXT,
+            metadata TEXT, created_at TEXT)""")
+        db.execute(
+            """INSERT INTO analytics_events
+               (event_type, page, product_slug, session_id, referrer,
+                utm_source, utm_medium, utm_campaign, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (event_type, page, product_slug, session_id, referrer,
+             utm_source, utm_medium, utm_campaign,
+             datetime.datetime.now(datetime.UTC).isoformat()),
+        )
+        db.commit()
+        db.close()
+    except Exception:
+        logger.debug("analytics event capture failed", exc_info=True)
     return {"ok": True}
 
 

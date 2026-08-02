@@ -22,6 +22,8 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      STOREFRONT_DOWNLOAD_SECRET: ci-test-only-secret-not-for-production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v7
@@ -39,8 +41,6 @@ jobs:
       - name: Lint
         run: ruff check app tests
       - name: Test storefront
-        env:
-          STOREFRONT_DOWNLOAD_SECRET: ci-placeholder-secret-not-real
         run: python -m pytest tests/ -q -p no:cacheprovider
       - name: Dependency audit
         run: pip-audit

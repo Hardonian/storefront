@@ -421,7 +421,7 @@ async def stack_status(format: str = "html"):
     hermes_rt = run("bash /home/scott/.hermes/scripts/hermes-runtime-guard.sh --report 2>/dev/null")
     all_green = "ALL GREEN" in lab
     failed = run("systemctl --user list-units --type=service --state=failed --no-legend 2>/dev/null | wc -l").strip()
-    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    ts = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     data = {
         "status": "operational" if (all_green and failed == "0") else "degraded",
@@ -440,10 +440,10 @@ async def stack_status(format: str = "html"):
 
     badge = "🟢 ALL GREEN" if all_green else "🔴 ISSUES"
     rows = "".join(
-        f"<tr><td><code>{_html.escape(l.split('OK')[0].strip() or l.strip()[:30])}</code></td>"
-        f"<td class='{'ok' if 'OK' in l else 'bad'}'>{_html.escape(l.strip())}</td></tr>"
-        for l in lab.splitlines() if l.strip() and "===" not in l and "GPU" not in l
-        and "Stack Status" not in l
+        f"<tr><td><code>{_html.escape(line.split('OK')[0].strip() or line.strip()[:30])}</code></td>"
+        f"<td class='{'ok' if 'OK' in line else 'bad'}'>{_html.escape(line.strip())}</td></tr>"
+        for line in lab.splitlines() if line.strip() and "===" not in line and "GPU" not in line
+        and "Stack Status" not in line
     )
     html_doc = f"""<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">

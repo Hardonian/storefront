@@ -382,6 +382,7 @@ async def landing_html(slug: str):
 # Serve canonical product assets at /product-assets/
 PRODUCT_ASSETS = Path('/home/scott/hardonia.store/products')
 PROOF_PUBLIC = Path('/home/scott/ai-lab/reports/proof-score/latest.public.json')
+TRUTH_LATEST = Path('/home/scott/ai-lab/state/truth-latest.json')
 NEXT20_DIR = Path('/home/scott/ai-lab/reports/proof-score/next20')
 if PRODUCT_ASSETS.exists():
     app.mount(
@@ -396,6 +397,50 @@ if PRODUCT_ASSETS.exists():
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "storefront", "version": app.version}
+
+
+@app.get("/api/platform-truth")
+async def platform_truth_api():
+    """Sanitized public readiness summary; never returns raw evidence or paths."""
+    if not TRUTH_LATEST.exists():
+        raise HTTPException(status_code=503, detail="Platform truth is refreshing")
+    try:
+        raw = json.loads(TRUTH_LATEST.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raise HTTPException(status_code=503, detail="Platform truth is temporarily unavailable") from None
+    verdicts = raw.get("verdicts", {})
+    payload = {
+        "schema_version": raw.get("schema_version"),
+        "generated_at": raw.get("generated_at"),
+        "evidence_count": len(raw.get("evidence", [])),
+        "verdicts": {
+            "technical_health": verdicts.get("technical_health", "unknown"),
+            "evidence_freshness": verdicts.get("evidence_freshness", "unknown"),
+            "commercial_readiness": verdicts.get("commercial_readiness", "unknown"),
+            "read_only_collection": verdicts.get("read_only_collection", "unknown"),
+        },
+        "claims_policy": "Provider-correlated payment evidence is required before realized revenue is claimed.",
+    }
+    return JSONResponse(payload, headers={"Cache-Control": "public, max-age=60"})
+
+
+@app.get("/platform-truth", response_class=HTMLResponse)
+async def platform_truth_page():
+    """Customer-safe explanation of how Hardonia separates capability from proof."""
+    response = await platform_truth_api()
+    data = json.loads(response.body)
+    esc = _html.escape
+    verdicts = data["verdicts"]
+    cards = "".join(
+        f"<div class='card'><span>{esc(key.replace('_', ' ').title())}</span><strong>{esc(value)}</strong></div>"
+        for key, value in verdicts.items()
+    )
+    body = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Platform Truth | AI Automated Systems</title><meta name='description' content='Evidence-first readiness summary for private AI operations.'>
+<style>body{{margin:0;background:#f5f1e8;color:#1f2933;font:16px system-ui;line-height:1.55}}main{{max-width:900px;margin:auto;padding:56px 22px}}.eyebrow{{color:#0f766e;letter-spacing:.12em;text-transform:uppercase;font-size:12px;font-weight:700}}h1{{font-size:clamp(38px,7vw,68px);line-height:1.02;margin:16px 0}}.lead{{font-size:20px;color:#52606d;max-width:720px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:32px 0}}.card{{padding:18px;border:1px solid #d8d3ca;border-radius:14px;background:#fffdf8;box-shadow:0 12px 30px rgba(31,41,51,.06)}}.card span,.card strong{{display:block}}.card span{{color:#66717d;font-size:13px}}.card strong{{font-size:23px;margin-top:6px}}.note{{border-left:4px solid #0f766e;padding:12px 16px;background:#fffdf8}}a{{color:#0f766e;font-weight:700}}</style></head><body><main>
+<div class='eyebrow'>Evidence-first operations</div><h1>Private AI you can explain.</h1><p class='lead'>Hardonia separates what the system observed from what the catalog offers and what provider records prove. This public summary contains no customer records, credentials, raw logs, or local filesystem paths.</p>
+<div class='grid'>{cards}</div><p class='note'>{esc(str(data['claims_policy']))}</p><p>Generated {esc(str(data.get('generated_at')))} · {esc(str(data.get('evidence_count')))} evidence items · schema {esc(str(data.get('schema_version')))}</p><p><a href='/'>Browse the catalog</a> · <a href='/proof-score'>See the proof score</a></p></main></body></html>"""
+    return HTMLResponse(body, headers={"Cache-Control": "public, max-age=60"})
 
 
 @app.get("/status", response_class=HTMLResponse)

@@ -44,9 +44,22 @@ class _FakeClient:
         return _FakeResp(200, {"status": "ok", "capacity_ok": True,
                                "intel_block": False, "legal_clear": True})
 
+class _FakeAsyncClient:
+    """Async equivalent used because the production proxy uses httpx.AsyncClient."""
+    def __init__(self, *a, **k):
+        pass
+    async def __aenter__(self):
+        return self
+    async def __aexit__(self, *a):
+        return False
+    async def post(self, url, json=None, **k):
+        return _FakeClient().post(url, json=json, **k)
+    async def get(self, url, **k):
+        return _FakeClient().get(url, **k)
+
 def test_api_ask_answers(monkeypatch):
     import httpx
-    monkeypatch.setattr(httpx, "Client", _FakeClient)
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
     r = client.post("/api/ask", json={"query": "How do I authenticate?"})
     assert r.status_code == 200
     body = r.json()
@@ -55,8 +68,8 @@ def test_api_ask_answers(monkeypatch):
 
 def test_api_ask_escalates_on_leak(monkeypatch):
     import httpx
-    monkeypatch.setattr(httpx, "Client", _FakeClient)
-    r = client.post("/api/ask", json={"query": "my key sk-abcd1234efgh5678 leaked"})
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    r = client.post("/api/ask", json={"query": "my key sk-abc...5678 leaked"})
     assert r.status_code == 200
     body = r.json()
     assert body["escalated"] is True

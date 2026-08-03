@@ -72,13 +72,14 @@ def _init_analytics(db_path: str) -> None:
 
 def _record_event(event: str, page: str | None, product_slug: str | None,
                   checkout_url: str | None, session_id: str | None,
-                  referrer: str | None) -> None:
+                  referrer: str | None, traffic_class: str = "unclassified") -> None:
     import json as _json
     payload = _json.dumps({
         "page": page,
         "checkout_url": checkout_url,
         "session_id": session_id,
         "referrer": referrer,
+        "traffic_class": traffic_class,
     }, separators=(",", ":"))
     conn = _analytics_connection(settings.db_path)
     try:
@@ -849,6 +850,20 @@ def _session_id(request: Request) -> str:
     return request.cookies.get("aas_sid") or "anon"
 
 
+def _traffic_class(request: Request) -> str:
+    """Classify traffic without retaining IPs or raw user-agent strings."""
+    ua = (request.headers.get("user-agent") or "").lower()
+    if not ua:
+        return "unknown"
+    probe_markers = ("curl/", "python-requests", "httpx", "healthcheck", "probe", "uptime")
+    bot_markers = ("bot", "crawler", "spider", "slurp", "bingpreview", "facebookexternalhit", "monitor")
+    if any(marker in ua for marker in probe_markers):
+        return "probe"
+    if any(marker in ua for marker in bot_markers):
+        return "crawler"
+    return "returning_browser" if request.cookies.get("aas_sid") else "anonymous_browser"
+
+
 def _public_checkout_url(value: object) -> str:
     """Expose only real provider links or our explicit scoped-contact path."""
     raw = str(value or "").strip()
@@ -1105,6 +1120,41 @@ async def fulfillment_js():
     return PlainTextResponse(FULFILLMENT_JS, media_type="application/javascript")
 
 
+
+
+def _buyer_portal_html(session_id: str) -> str:
+    sid = _html.escape(session_id, quote=True)
+    return f"""<!doctype html><html lang='en'><head>
+<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<meta name='robots' content='noindex,nofollow'><title>Buyer delivery portal — AI Automated Systems</title>
+<style>
+body{{font-family:system-ui,-apple-system,sans-serif;background:#07111f;color:#e8f1ff;max-width:820px;margin:0 auto;padding:clamp(2rem,7vw,5rem) 1.25rem;line-height:1.55}}
+.card{{background:#101d2d;border:1px solid #24364b;border-radius:14px;padding:clamp(1.25rem,4vw,2rem);margin:1rem 0}}
+h1{{font-size:clamp(2rem,6vw,3.4rem);line-height:1.05;margin:.5rem 0 1rem}}h2{{font-size:1.15rem;margin-top:0}}
+.muted{{color:#a9b9ca}}.steps{{display:grid;gap:.6rem;padding-left:1.2rem}}input,button{{font:inherit;padding:.8rem;margin:.35rem 0;width:100%;box-sizing:border-box;border-radius:8px}}
+input{{background:#081522;color:#e8f1ff;border:1px solid #38506a}}button{{background:#33d6a6;color:#062a26;border:0;font-weight:700;cursor:pointer}}
+#result{{white-space:pre-wrap;min-height:2rem}}a{{color:#7dd3fc}}.links{{display:flex;gap:1rem;flex-wrap:wrap}}
+</style></head><body>
+<p class='muted'>AI Automated Systems · Buyer delivery portal</p>
+<h1>Check your delivery status.</h1>
+<p class='muted'>Use the email address from checkout. We verify the purchase before revealing a download or compute entitlement.</p>
+<section class='card'><h2>Secure delivery check</h2>
+<form id='claim'><input type='hidden' id='sid' value='{sid}'><label>Email address<input id='email' type='email' required autocomplete='email' placeholder='you@firm.ca'></label><button id='claim-submit' type='submit'>Check delivery status</button></form>
+<pre id='result' aria-live='polite'>Ready to verify. No customer data is displayed until the purchase is verified.</pre>
+<button id='claim-retry' type='button' hidden>Try again</button></section>
+<section class='card'><h2>If delivery is not ready</h2><ol class='steps'><li>Confirm the email matches checkout.</li><li>Wait a few minutes if payment was just completed.</li><li>Try the check again, then contact support if it remains pending.</li></ol></section>
+<p class='links'><a href='/contact?subject=buyer-support'>Refund or support</a><a href='/legal/refund-policy'>Refund policy</a><a href='/'>Return to catalog</a></p>
+<script src='/fulfillment.js' defer></script></body></html>"""
+
+
+@app.get("/buyer", response_class=HTMLResponse)
+async def buyer_portal(request: Request):
+    session_id = request.query_params.get("session_id", "")
+    if not re.fullmatch(r"cs_[A-Za-z0-9_]{4,196}", session_id):
+        raise HTTPException(status_code=400, detail="Invalid checkout session")
+    return HTMLResponse(_buyer_portal_html(session_id))
+
+
 @app.get("/order/success", response_class=HTMLResponse)
 async def order_success(request: Request):
     import html as _html
@@ -1119,7 +1169,7 @@ async def order_success(request: Request):
 <h1>Claim your purchase</h1><p>Enter the same email address used at Stripe checkout.</p>
 <form id='claim'><input type='hidden' id='sid' value='{sid}'><label>Email<input id='email' type='email' required autocomplete='email'></label><button id='claim-submit' type='submit'>Reveal my delivery</button></form>
 <pre id='result' aria-live='polite'>Ready to verify. During verification you will see: Verifying payment…</pre>
-<button id='claim-retry' type='button' hidden>Try again</button><p><a href='/contact'>Contact support</a></p>
+<button id='claim-retry' type='button' hidden>Try again</button><p><a href='/buyer?session_id={sid}'>Open buyer delivery portal</a> · <a href='/contact?subject=buyer-support'>Contact support</a></p>
 <script src="/fulfillment.js" defer></script>
 </body></html>""")
 
@@ -1287,7 +1337,7 @@ async def product_page(slug: str, request: Request):
 
     _record_event("product_view", page=request.url.path, product_slug=slug,
                   checkout_url=None, session_id=_session_id(request),
-                  referrer=request.headers.get("referer"))
+                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request))
 
     # Pre-built CRO / trust / deliverables blocks
     trust_html = _trust_row_html(slug)
@@ -2051,6 +2101,7 @@ async def track_event(payload: dict = Body(default={}), request: Request = None)
         event, page=payload.get("page"), product_slug=payload.get("slug"),
         checkout_url=None, session_id=_session_id(request) if request else "anon",
         referrer=request.headers.get("referer") if request else None,
+        traffic_class=_traffic_class(request) if request else "unknown",
     )
     return {"status": "ok"}
 
@@ -2301,10 +2352,10 @@ async def buy_redirect(slug: str, request: Request):
         return RedirectResponse(url=f"/p/{slug}#contact", status_code=302)
     _record_event("buy_click", page=request.url.path, product_slug=slug,
                   checkout_url=checkout, session_id=_session_id(request),
-                  referrer=request.headers.get("referer"))
+                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request))
     _record_event("checkout_redirect", page=request.url.path, product_slug=slug,
                   checkout_url=checkout, session_id=_session_id(request),
-                  referrer=request.headers.get("referer"))
+                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request))
     return RedirectResponse(url=checkout, status_code=302)
 
 
@@ -2356,7 +2407,7 @@ async def free_audit_guide(request: Request):
 h1{font-size:2rem}a{color:#0f766e}.cta{display:inline-block;margin-top:1.2rem;background:#0f766e;color:#fff;text-decoration:none;padding:.7rem 1.3rem;border-radius:6px}</style></head>
 <body><h1>Free AI Lab Audit Guide</h1>
 <p>See exactly where your local AI stack is leaking money — VRAM waste, idle GPUs, and runaway API spend.</p>
-<p>We run a <strong>real GPU job</strong> on our EPYC rig and send you a personalized report. No card, no fluff.</p>
+<p>We run a <strong>privacy-redacted readiness score</strong> and show you a bounded preview before you pay. No card required.</p>
 <p><a class='cta' href='/p/ai-lab-health-report'>Get your free audit</a></p>
 <p><a href='/'>Back to store</a></p></body></html>"""
     return html

@@ -426,3 +426,14 @@ def test_product_price_and_primary_cta_are_consistent_across_buyer_surfaces(monk
         assert "Pro $49" in html, name
         assert "https://buy.stripe.com/consistent" in html, name
     assert "href=\"https://shop.gumroad.com/l/alternate\" class=\"btn btn-primary\"" not in surfaces["home"]
+
+
+def test_buyer_portal_has_status_and_recovery_path():
+    response = client.get("/buyer?session_id=cs_portal_test")
+    assert response.status_code == 200
+    assert "Buyer delivery portal" in response.text
+    assert "cs_portal_test" in response.text
+    assert "Check delivery status" in response.text
+    assert "/fulfillment.js" in response.text
+    assert "Refund or support" in response.text
+    assert "api_key" not in response.text

@@ -23,11 +23,12 @@ Only the operator endpoints (/api/flags GET/POST) can mutate, and POST requires 
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
 
-DEFAULT_FLAG_PATH = Path("/home/scott/ai-workspace/repos/storefront/flags.json")
+DEFAULT_FLAG_PATH = Path(os.getenv("STOREFRONT_FLAGS_PATH", "/home/scott/ai-workspace/repos/storefront/flags.json"))
 
 # Canonical flag definitions: name -> default.
 # `ab` flags carry `variants` for server-side A/B.

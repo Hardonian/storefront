@@ -3,15 +3,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-# Load the gitignored .env like the systemd service does (EnvironmentFile),
-# so INDEXNOW_KEY is present before app.main is imported.
-_ENV = Path(__file__).resolve().parent.parent / ".env"
-if _ENV.exists():
-    for line in _ENV.read_text().splitlines():
-        if line.startswith("INDEXNOW_KEY="):
-            os.environ.setdefault("INDEXNOW_KEY", line.split("=", 1)[1].strip())
-            break
-
+# INDEXNOW_KEY is loaded into env by tests/conftest.py (from .env, like the
+# systemd EnvironmentFile) before any test module imports app.main.
 from app.main import app
 
 client = TestClient(app)

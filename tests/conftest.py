@@ -15,6 +15,18 @@ os.environ["STOREFRONT_DOWNLOAD_SECRET"] = "test-download-secret-not-for-prod"
 os.environ["DB_PATH"] = str(_TEST_DB)
 os.environ["STOREFRONT_FLAGS_PATH"] = str(_TEST_FLAGS)
 os.environ["LEGAL_DIR"] = str(_TEST_LEGAL)
+# Hermetic operator API key for authed surfaces (/api/flags, /api/analytics, ...).
+# Env vars take precedence over the repo .env in pydantic-settings.
+os.environ["API_KEY"] = "test-operator-key-not-for-prod"
+# Load INDEXNOW_KEY from the gitignored .env (production loads it via systemd
+# EnvironmentFile). Set before any test module imports app.main so the module
+# constant is correct regardless of test collection order.
+_ENV = Path(__file__).resolve().parent.parent / ".env"
+if _ENV.exists():
+    for _line in _ENV.read_text().splitlines():
+        if _line.startswith("INDEXNOW_KEY="):
+            os.environ.setdefault("INDEXNOW_KEY", _line.split("=", 1)[1].strip())
+            break
 
 with sqlite3.connect(_TEST_DB) as _conn:
     _conn.executescript(

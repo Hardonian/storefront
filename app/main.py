@@ -72,13 +72,14 @@ def _init_analytics(db_path: str) -> None:
 
 def _record_event(event: str, page: str | None, product_slug: str | None,
                   checkout_url: str | None, session_id: str | None,
-                  referrer: str | None) -> None:
+                  referrer: str | None, traffic_class: str = "unclassified") -> None:
     import json as _json
     payload = _json.dumps({
         "page": page,
         "checkout_url": checkout_url,
         "session_id": session_id,
         "referrer": referrer,
+        "traffic_class": traffic_class,
     }, separators=(",", ":"))
     conn = _analytics_connection(settings.db_path)
     try:
@@ -365,6 +366,27 @@ if (LANDING_DIR / "assets").exists():
         StaticFiles(directory=str(LANDING_DIR / "assets")),
         name="landing-assets",
     )
+
+# Serve the exact Google Search Console ownership token at site root. This is
+# deliberately an explicit route, not a user-controlled static-file path.
+GOOGLE_SITE_VERIFICATION = Path(__file__).resolve().parent.parent / "static" / "google9bd18844eac022ef.html"
+INDEXNOW_KEY = os.getenv("INDEXNOW_KEY", "")
+INDEXNOW_KEY_FILE = Path(__file__).resolve().parent.parent / "static" / f"{INDEXNOW_KEY}.txt"
+
+
+@app.api_route("/google9bd18844eac022ef.html", methods=["GET", "HEAD"], include_in_schema=False)
+async def google_site_verification():
+    if not GOOGLE_SITE_VERIFICATION.is_file():
+        raise HTTPException(status_code=404, detail="verification file unavailable")
+    return FileResponse(str(GOOGLE_SITE_VERIFICATION), media_type="text/html")
+
+
+@app.api_route(f"/{INDEXNOW_KEY}.txt", methods=["GET", "HEAD"], include_in_schema=False)
+async def indexnow_key_file():
+    if not INDEXNOW_KEY_FILE.is_file():
+        raise HTTPException(status_code=404, detail="IndexNow key file unavailable")
+    return FileResponse(str(INDEXNOW_KEY_FILE), media_type="text/plain")
+
 
 # Serve standalone landing HTML previews at /landing/<slug>.html
 # These are the generated, real-CTA product landing pages.
@@ -731,7 +753,7 @@ async def robots_txt(request: Request):
     return PlainTextResponse(body)
 
 
-@app.get("/sitemap.xml", response_class=PlainTextResponse)
+@app.get("/sitemap.xml", response_class=Response)
 async def sitemap_xml(request: Request):
     products = store.list_products(settings.db_path)
     base, _ = public_brand(request)
@@ -780,7 +802,7 @@ async def sitemap_xml(request: Request):
         + "\n".join(rendered_urls)
         + "\n</urlset>\n"
     )
-    return PlainTextResponse(xml)
+    return Response(xml, media_type="application/xml")
 
 
 @app.get("/llms.txt", response_class=PlainTextResponse)
@@ -849,6 +871,20 @@ def _session_id(request: Request) -> str:
     return request.cookies.get("aas_sid") or "anon"
 
 
+def _traffic_class(request: Request) -> str:
+    """Classify traffic without retaining IPs or raw user-agent strings."""
+    ua = (request.headers.get("user-agent") or "").lower()
+    if not ua:
+        return "unknown"
+    probe_markers = ("curl/", "python-requests", "httpx", "healthcheck", "probe", "uptime")
+    bot_markers = ("bot", "crawler", "spider", "slurp", "bingpreview", "facebookexternalhit", "monitor")
+    if any(marker in ua for marker in probe_markers):
+        return "probe"
+    if any(marker in ua for marker in bot_markers):
+        return "crawler"
+    return "returning_browser" if request.cookies.get("aas_sid") else "anonymous_browser"
+
+
 def _public_checkout_url(value: object) -> str:
     """Expose only real provider links or our explicit scoped-contact path."""
     raw = str(value or "").strip()
@@ -881,7 +917,12 @@ def _safe_external_url(value: object) -> str:
     except Exception:
         return ""
     host = (parsed.hostname or "").lower()
-    allowed = host == "buy.stripe.com" or host.endswith(".gumroad.com")
+    allowed_payment = host == "buy.stripe.com" or host.endswith(".gumroad.com")
+    # Consultative products may use the canonical operator audit route instead
+    # of a provider checkout. Keep this explicitly allowlisted; never turn the
+    # helper into a generic outbound-link proxy.
+    allowed_operator = host == "aiautomatedsystems.ca" and parsed.path == "/audit/" and not parsed.query
+    allowed = allowed_payment or allowed_operator
     safe_authority = parsed.username is None and parsed.password is None and parsed.port in {None, 443}
     return raw if parsed.scheme == "https" and allowed and safe_authority else ""
 
@@ -911,6 +952,21 @@ async def index(request: Request):
     flags = flag_engine.load_flags()
     hero_variant = flag_engine.evaluate_variant("hero_variant", _session_id(request))
     cta_variant = flag_engine.evaluate_variant("cta_variant", _session_id(request))
+    # Measure which variants a visitor actually saw (promised by flags.py:
+    # "Every read is logged ... so the loop can measure which variant a visitor
+    # saw"). Record one flag_evaluation event per catalog render so the A/B
+    # loop can attribute conversions to a variant. Gated by the same sampling
+    # rate as analytics so it can't bloat the events table when operator
+    # lowers analytics_sampling.
+    if flag_engine.should_sample(_session_id(request)):
+        try:
+            _record_event(
+                f"flag_evaluation:hero={hero_variant}:cta={cta_variant}",
+                page=request.url.path, product_slug=None, checkout_url=None,
+                session_id=_session_id(request), referrer=None,
+            )
+        except Exception:
+            logger.debug("flag_evaluation log failed", exc_info=True)
     try:
         html = jinja_env.get_template("index.html").render(
             products=saleable_products,
@@ -1105,6 +1161,41 @@ async def fulfillment_js():
     return PlainTextResponse(FULFILLMENT_JS, media_type="application/javascript")
 
 
+
+
+def _buyer_portal_html(session_id: str) -> str:
+    sid = _html.escape(session_id, quote=True)
+    return f"""<!doctype html><html lang='en'><head>
+<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<meta name='robots' content='noindex,nofollow'><title>Buyer delivery portal — AI Automated Systems</title>
+<style>
+body{{font-family:system-ui,-apple-system,sans-serif;background:#07111f;color:#e8f1ff;max-width:820px;margin:0 auto;padding:clamp(2rem,7vw,5rem) 1.25rem;line-height:1.55}}
+.card{{background:#101d2d;border:1px solid #24364b;border-radius:14px;padding:clamp(1.25rem,4vw,2rem);margin:1rem 0}}
+h1{{font-size:clamp(2rem,6vw,3.4rem);line-height:1.05;margin:.5rem 0 1rem}}h2{{font-size:1.15rem;margin-top:0}}
+.muted{{color:#a9b9ca}}.steps{{display:grid;gap:.6rem;padding-left:1.2rem}}input,button{{font:inherit;padding:.8rem;margin:.35rem 0;width:100%;box-sizing:border-box;border-radius:8px}}
+input{{background:#081522;color:#e8f1ff;border:1px solid #38506a}}button{{background:#33d6a6;color:#062a26;border:0;font-weight:700;cursor:pointer}}
+#result{{white-space:pre-wrap;min-height:2rem}}a{{color:#7dd3fc}}.links{{display:flex;gap:1rem;flex-wrap:wrap}}
+</style></head><body>
+<p class='muted'>AI Automated Systems · Buyer delivery portal</p>
+<h1>Check your delivery status.</h1>
+<p class='muted'>Use the email address from checkout. We verify the purchase before revealing a download or compute entitlement.</p>
+<section class='card'><h2>Secure delivery check</h2>
+<form id='claim'><input type='hidden' id='sid' value='{sid}'><label>Email address<input id='email' type='email' required autocomplete='email' placeholder='you@firm.ca'></label><button id='claim-submit' type='submit'>Check delivery status</button></form>
+<pre id='result' aria-live='polite'>Ready to verify. No customer data is displayed until the purchase is verified.</pre>
+<button id='claim-retry' type='button' hidden>Try again</button></section>
+<section class='card'><h2>If delivery is not ready</h2><ol class='steps'><li>Confirm the email matches checkout.</li><li>Wait a few minutes if payment was just completed.</li><li>Try the check again, then contact support if it remains pending.</li></ol></section>
+<p class='links'><a href='/contact?subject=buyer-support'>Refund or support</a><a href='/legal/refund-policy'>Refund policy</a><a href='/'>Return to catalog</a></p>
+<script src='/fulfillment.js' defer></script></body></html>"""
+
+
+@app.get("/buyer", response_class=HTMLResponse)
+async def buyer_portal(request: Request):
+    session_id = request.query_params.get("session_id", "")
+    if not re.fullmatch(r"cs_[A-Za-z0-9_]{4,196}", session_id):
+        raise HTTPException(status_code=400, detail="Invalid checkout session")
+    return HTMLResponse(_buyer_portal_html(session_id))
+
+
 @app.get("/order/success", response_class=HTMLResponse)
 async def order_success(request: Request):
     import html as _html
@@ -1119,7 +1210,7 @@ async def order_success(request: Request):
 <h1>Claim your purchase</h1><p>Enter the same email address used at Stripe checkout.</p>
 <form id='claim'><input type='hidden' id='sid' value='{sid}'><label>Email<input id='email' type='email' required autocomplete='email'></label><button id='claim-submit' type='submit'>Reveal my delivery</button></form>
 <pre id='result' aria-live='polite'>Ready to verify. During verification you will see: Verifying payment…</pre>
-<button id='claim-retry' type='button' hidden>Try again</button><p><a href='/contact'>Contact support</a></p>
+<button id='claim-retry' type='button' hidden>Try again</button><p><a href='/buyer?session_id={sid}'>Open buyer delivery portal</a> · <a href='/contact?subject=buyer-support'>Contact support</a></p>
 <script src="/fulfillment.js" defer></script>
 </body></html>""")
 
@@ -1287,7 +1378,7 @@ async def product_page(slug: str, request: Request):
 
     _record_event("product_view", page=request.url.path, product_slug=slug,
                   checkout_url=None, session_id=_session_id(request),
-                  referrer=request.headers.get("referer"))
+                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request))
 
     # Pre-built CRO / trust / deliverables blocks
     trust_html = _trust_row_html(slug)
@@ -1778,6 +1869,12 @@ async def analytics_event(request: Request):
     import sqlite3 as _sql
     try:
         body = await request.json()
+        # Respect the operator-set analytics_sampling flag (0..1): a CostGuard
+        # that drops events below the rate instead of writing every page_view.
+        # No session id means we can't bucket deterministically — keep the write.
+        sid = str(body.get("sid") or body.get("session_id") or "")
+        if sid and not flag_engine.should_sample(sid):
+            return {"ok": True, "sampled": False}
         event_type = str(body.get("type") or body.get("event_type") or "unknown")[:80]
         page = str(body.get("page") or "")[:255]
         product_slug = str(body.get("product_slug") or "")[:120]
@@ -1854,8 +1951,8 @@ async def pricing_page():
         name = _html.escape(str(p.get("name") or ""))
         price = _html.escape(str(p.get("price") or ""))
         checkout = _safe_external_url(p.get("checkout_url"))
-        cta = f"<a class='cta' href='{_html.escape(checkout, quote=True)}' target='_blank' rel='noopener'>Buy — {price}</a>" if checkout \
-            else f"<a class='cta' href='/contact?product={slug}'>Discuss — {price}</a>"
+        cta = f"<a class='cta' data-slug='{slug}' data-price='{price}' href='{_html.escape(checkout, quote=True)}' target='_blank' rel='noopener'>Buy — {price}</a>" if checkout \
+            else f"<a class='cta' data-slug='{slug}' href='/contact?product={slug}'>Discuss — {price}</a>"
         rows.append(f"<tr><td><a href='/p/{slug}'>{name}</a></td><td>{price}</td><td>{cta}</td></tr>")
     table = "\n".join(rows)
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
@@ -1880,6 +1977,28 @@ a{{color:#0f766e}} @media(max-width:600px){{table{{font-size:.85rem}} th,td{{pad
 </tbody></table>
 </main>
 <footer><p><a href='/'>← Back to home</a></p></footer>
+<script>
+(function(){{
+  function send(ev, extra){{
+    try{{
+      var body = JSON.stringify(Object.assign({{event:ev, page:'/pricing'}}, extra||{{}}));
+      if (navigator.sendBeacon) {{
+        navigator.sendBeacon('/api/track', new Blob([body], {{type:'application/json'}}));
+      }} else {{
+        fetch('/api/track', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:body, keepalive:true}});
+      }}
+    }} catch(e) {{}}
+  }}
+  send('page_view');
+  document.addEventListener('click', function(e){{
+    var a = e.target.closest && e.target.closest('a.cta');
+    if(!a) return;
+    var slug = a.getAttribute('data-slug') || '';
+    var isBuy = (a.getAttribute('href')||'').indexOf('http') === 0;
+    send(isBuy ? 'checkout_redirect' : 'contact_click', {{slug: slug}});
+  }}, true);
+}})();
+</script>
 </body></html>"""
     return html
 
@@ -1929,7 +2048,7 @@ async def privacy_erase(request: Request, payload: dict = Body(default={})):
         return JSONResponse({"ok": False, "reason": "temporarily_unavailable"}, status_code=503)
 
 
-@app.get("/blog/rss.xml", response_class=PlainTextResponse)
+@app.get("/blog/rss.xml", response_class=Response)
 async def blog_rss():
     import html as _h
     from pathlib import Path as _P
@@ -1941,7 +2060,7 @@ async def blog_rss():
         desc = _h.escape(d.read_text()[:200])
         items.append(f'    <item><title>{_h.escape(title)}</title><link>{link}</link><guid>{link}</guid><description>{desc}</description></item>')
     xml = '<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel>\n<title>AI Automated Systems — Local-AI Ops</title>\n<link>https://aiautomatedsystems.ca/blog</link>\n<description>Self-hosting, ComfyUI, n8n, and private inference guides.</description>\n' + chr(10).join(items) + '\n</channel></rss>'
-    return xml
+    return Response(xml, media_type="application/rss+xml")
 
 
 @app.get("/blog", response_class=HTMLResponse)
@@ -2051,6 +2170,7 @@ async def track_event(payload: dict = Body(default={}), request: Request = None)
         event, page=payload.get("page"), product_slug=payload.get("slug"),
         checkout_url=None, session_id=_session_id(request) if request else "anon",
         referrer=request.headers.get("referer") if request else None,
+        traffic_class=_traffic_class(request) if request else "unknown",
     )
     return {"status": "ok"}
 
@@ -2156,6 +2276,102 @@ async def analytics(x_api_key: str | None = Header(None)):
             for r in recent
         ],
     }
+
+
+# ── Feature-flag operator control surface ─────────────────────────────────────
+# Delivers the control plane promised by app/flags.py: read live flags, mutate
+# them fail-closed (unknown flag -> 404, wrong type -> 422), and run A/B
+# experiments with an optional proven-winner pin. Every mutation is recorded as
+# a `flag_*` event so the daily digest can see what changed and when.
+# Auth: operator X-API-Key (same gate as /api/analytics and /api/leads).
+
+
+@app.get("/api/flags", response_class=JSONResponse)
+async def get_flags(x_api_key: str | None = Header(None)):
+    if not settings.api_key or x_api_key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    flags = flag_engine.load_flags()
+    exp = flag_engine._active_experiment(flag_engine.DEFAULT_FLAG_PATH)  # noqa: SLF001 — read-only, engine-local
+    return {
+        "flags": flags,
+        "schema": {k: v for k, v in flag_engine.FLAG_SCHEMA.items()},
+        "active_experiment": exp,
+        "flag_file": str(flag_engine.DEFAULT_FLAG_PATH),
+    }
+
+
+class FlagUpdate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    value: bool | float | str
+
+
+@app.post("/api/flags", response_class=JSONResponse)
+async def set_flag(payload: FlagUpdate, x_api_key: str | None = Header(None)):
+    if not settings.api_key or x_api_key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    spec = flag_engine.FLAG_SCHEMA.get(payload.name)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown flag: {payload.name}")
+    # Type-validate against the schema (fail closed, no silent coercion).
+    if spec.get("type") == "bool" and not isinstance(payload.value, bool):
+        raise HTTPException(status_code=422, detail=f"{payload.name} requires a bool")
+    if spec.get("type") == "float":
+        try:
+            fval = float(payload.value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail=f"{payload.name} requires a float")
+        if not 0.0 <= fval <= 1.0:
+            raise HTTPException(status_code=422, detail="sampling must be 0..1")
+        payload.value = fval
+    if spec.get("type") == "ab" and str(payload.value) not in spec.get("variants", []):
+        raise HTTPException(status_code=422, detail=f"{payload.name} must be one of {spec.get('variants')}")
+    if spec.get("type") == "ab":
+        # Pinning an A/B flag is only meaningful when no experiment is running;
+        # refuse if an experiment would be silently masked.
+        exp = flag_engine._active_experiment(flag_engine.DEFAULT_FLAG_PATH)  # noqa: SLF001
+        if exp and exp.get("flag") == payload.name:
+            raise HTTPException(status_code=409, detail="Stop the experiment first (POST /api/flags/experiment stop)")
+    ok = flag_engine.set_flag(payload.name, payload.value)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Unknown flag")
+    _record_event(
+        f"flag_set:{payload.name}={payload.value}",
+        page="/api/flags", product_slug=None, checkout_url=None,
+        session_id=None, referrer=None,
+    )
+    return {"ok": True, "flag": payload.name, "value": payload.value}
+
+
+class ExperimentControl(BaseModel):
+    action: str = Field(..., pattern="^(start|stop)$")
+    flag: str = ""
+    force_winner: str | None = None
+
+
+@app.post("/api/flags/experiment", response_class=JSONResponse)
+async def control_experiment(payload: ExperimentControl, x_api_key: str | None = Header(None)):
+    if not settings.api_key or x_api_key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if payload.action == "stop":
+        flag_engine.stop_experiment()
+        _record_event(
+            "flag_experiment:stop", page="/api/flags/experiment",
+            product_slug=None, checkout_url=None, session_id=None, referrer=None,
+        )
+        return {"ok": True, "experiment": None}
+    if not payload.flag:
+        raise HTTPException(status_code=422, detail="flag required to start")
+    try:
+        exp = flag_engine.start_experiment(payload.flag, payload.force_winner)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    _record_event(
+        f"flag_experiment:start:{payload.flag}"
+        + (f":winner={payload.force_winner}" if payload.force_winner else ""),
+        page="/api/flags/experiment", product_slug=None, checkout_url=None,
+        session_id=None, referrer=None,
+    )
+    return {"ok": True, "experiment": exp}
 
 
 # ── Lead capture / subscribe ───────────────────────────────────────────────────
@@ -2301,10 +2517,10 @@ async def buy_redirect(slug: str, request: Request):
         return RedirectResponse(url=f"/p/{slug}#contact", status_code=302)
     _record_event("buy_click", page=request.url.path, product_slug=slug,
                   checkout_url=checkout, session_id=_session_id(request),
-                  referrer=request.headers.get("referer"))
+                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request))
     _record_event("checkout_redirect", page=request.url.path, product_slug=slug,
                   checkout_url=checkout, session_id=_session_id(request),
-                  referrer=request.headers.get("referer"))
+                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request))
     return RedirectResponse(url=checkout, status_code=302)
 
 
@@ -2348,15 +2564,17 @@ async def status_json():
 # ── Free audit guide (lead magnet) ─────────────────────────────────────────────
 @app.get("/free-audit-guide", response_class=HTMLResponse)
 async def free_audit_guide(request: Request):
+    """Truthful entry point: a free questionnaire, not an implied free service."""
     html = """<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
-<title>Free AI Lab Audit Guide — AI Automated Systems</title>
-<meta name='description' content='Get a real GPU-backed audit of your local AI stack. Free, no card required.'>
+<title>Free Private AI Readiness Guide — AI Automated Systems</title>
+<meta name='description' content='Use a privacy-respecting readiness questionnaire to identify practical next steps for a local AI stack.'>
 <style>body{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:640px;margin:6vh auto;padding:0 20px;line-height:1.7}
 h1{font-size:2rem}a{color:#0f766e}.cta{display:inline-block;margin-top:1.2rem;background:#0f766e;color:#fff;text-decoration:none;padding:.7rem 1.3rem;border-radius:6px}</style></head>
-<body><h1>Free AI Lab Audit Guide</h1>
-<p>See exactly where your local AI stack is leaking money — VRAM waste, idle GPUs, and runaway API spend.</p>
-<p>We run a <strong>real GPU job</strong> on our EPYC rig and send you a personalized report. No card, no fluff.</p>
-<p><a class='cta' href='/p/ai-lab-health-report'>Get your free audit</a></p>
+<body><h1>Free Private AI Readiness Guide</h1>
+<p>Answer five short questions to identify practical next steps for a local AI setup. The questionnaire does not inspect your system automatically and does not make savings claims.</p>
+<p>You can see the readiness result without a card. Provide an email only if you want an optional follow-up.</p>
+<p><a class='cta' href='/lead'>Start the free readiness questionnaire</a></p>
+<p>Need a paid technical review or implementation scope? <a href='/contact'>Talk to an operator</a>.</p>
 <p><a href='/'>Back to store</a></p></body></html>"""
     return html

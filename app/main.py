@@ -952,6 +952,21 @@ async def index(request: Request):
     flags = flag_engine.load_flags()
     hero_variant = flag_engine.evaluate_variant("hero_variant", _session_id(request))
     cta_variant = flag_engine.evaluate_variant("cta_variant", _session_id(request))
+    # Measure which variants a visitor actually saw (promised by flags.py:
+    # "Every read is logged ... so the loop can measure which variant a visitor
+    # saw"). Record one flag_evaluation event per catalog render so the A/B
+    # loop can attribute conversions to a variant. Gated by the same sampling
+    # rate as analytics so it can't bloat the events table when operator
+    # lowers analytics_sampling.
+    if flag_engine.should_sample(_session_id(request)):
+        try:
+            _record_event(
+                f"flag_evaluation:hero={hero_variant}:cta={cta_variant}",
+                page=request.url.path, product_slug=None, checkout_url=None,
+                session_id=_session_id(request), referrer=None,
+            )
+        except Exception:
+            logger.debug("flag_evaluation log failed", exc_info=True)
     try:
         html = jinja_env.get_template("index.html").render(
             products=saleable_products,
@@ -1854,6 +1869,12 @@ async def analytics_event(request: Request):
     import sqlite3 as _sql
     try:
         body = await request.json()
+        # Respect the operator-set analytics_sampling flag (0..1): a CostGuard
+        # that drops events below the rate instead of writing every page_view.
+        # No session id means we can't bucket deterministically — keep the write.
+        sid = str(body.get("sid") or body.get("session_id") or "")
+        if sid and not flag_engine.should_sample(sid):
+            return {"ok": True, "sampled": False}
         event_type = str(body.get("type") or body.get("event_type") or "unknown")[:80]
         page = str(body.get("page") or "")[:255]
         product_slug = str(body.get("product_slug") or "")[:120]
@@ -2255,6 +2276,102 @@ async def analytics(x_api_key: str | None = Header(None)):
             for r in recent
         ],
     }
+
+
+# ── Feature-flag operator control surface ─────────────────────────────────────
+# Delivers the control plane promised by app/flags.py: read live flags, mutate
+# them fail-closed (unknown flag -> 404, wrong type -> 422), and run A/B
+# experiments with an optional proven-winner pin. Every mutation is recorded as
+# a `flag_*` event so the daily digest can see what changed and when.
+# Auth: operator X-API-Key (same gate as /api/analytics and /api/leads).
+
+
+@app.get("/api/flags", response_class=JSONResponse)
+async def get_flags(x_api_key: str | None = Header(None)):
+    if not settings.api_key or x_api_key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    flags = flag_engine.load_flags()
+    exp = flag_engine._active_experiment(flag_engine.DEFAULT_FLAG_PATH)  # noqa: SLF001 — read-only, engine-local
+    return {
+        "flags": flags,
+        "schema": {k: v for k, v in flag_engine.FLAG_SCHEMA.items()},
+        "active_experiment": exp,
+        "flag_file": str(flag_engine.DEFAULT_FLAG_PATH),
+    }
+
+
+class FlagUpdate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    value: bool | float | str
+
+
+@app.post("/api/flags", response_class=JSONResponse)
+async def set_flag(payload: FlagUpdate, x_api_key: str | None = Header(None)):
+    if not settings.api_key or x_api_key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    spec = flag_engine.FLAG_SCHEMA.get(payload.name)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown flag: {payload.name}")
+    # Type-validate against the schema (fail closed, no silent coercion).
+    if spec.get("type") == "bool" and not isinstance(payload.value, bool):
+        raise HTTPException(status_code=422, detail=f"{payload.name} requires a bool")
+    if spec.get("type") == "float":
+        try:
+            fval = float(payload.value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail=f"{payload.name} requires a float")
+        if not 0.0 <= fval <= 1.0:
+            raise HTTPException(status_code=422, detail="sampling must be 0..1")
+        payload.value = fval
+    if spec.get("type") == "ab" and str(payload.value) not in spec.get("variants", []):
+        raise HTTPException(status_code=422, detail=f"{payload.name} must be one of {spec.get('variants')}")
+    if spec.get("type") == "ab":
+        # Pinning an A/B flag is only meaningful when no experiment is running;
+        # refuse if an experiment would be silently masked.
+        exp = flag_engine._active_experiment(flag_engine.DEFAULT_FLAG_PATH)  # noqa: SLF001
+        if exp and exp.get("flag") == payload.name:
+            raise HTTPException(status_code=409, detail="Stop the experiment first (POST /api/flags/experiment stop)")
+    ok = flag_engine.set_flag(payload.name, payload.value)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Unknown flag")
+    _record_event(
+        f"flag_set:{payload.name}={payload.value}",
+        page="/api/flags", product_slug=None, checkout_url=None,
+        session_id=None, referrer=None,
+    )
+    return {"ok": True, "flag": payload.name, "value": payload.value}
+
+
+class ExperimentControl(BaseModel):
+    action: str = Field(..., pattern="^(start|stop)$")
+    flag: str = ""
+    force_winner: str | None = None
+
+
+@app.post("/api/flags/experiment", response_class=JSONResponse)
+async def control_experiment(payload: ExperimentControl, x_api_key: str | None = Header(None)):
+    if not settings.api_key or x_api_key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if payload.action == "stop":
+        flag_engine.stop_experiment()
+        _record_event(
+            "flag_experiment:stop", page="/api/flags/experiment",
+            product_slug=None, checkout_url=None, session_id=None, referrer=None,
+        )
+        return {"ok": True, "experiment": None}
+    if not payload.flag:
+        raise HTTPException(status_code=422, detail="flag required to start")
+    try:
+        exp = flag_engine.start_experiment(payload.flag, payload.force_winner)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    _record_event(
+        f"flag_experiment:start:{payload.flag}"
+        + (f":winner={payload.force_winner}" if payload.force_winner else ""),
+        page="/api/flags/experiment", product_slug=None, checkout_url=None,
+        session_id=None, referrer=None,
+    )
+    return {"ok": True, "experiment": exp}
 
 
 # ── Lead capture / subscribe ───────────────────────────────────────────────────

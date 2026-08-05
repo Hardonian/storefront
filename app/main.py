@@ -367,6 +367,27 @@ if (LANDING_DIR / "assets").exists():
         name="landing-assets",
     )
 
+# Serve the exact Google Search Console ownership token at site root. This is
+# deliberately an explicit route, not a user-controlled static-file path.
+GOOGLE_SITE_VERIFICATION = Path(__file__).resolve().parent.parent / "static" / "google9bd18844eac022ef.html"
+INDEXNOW_KEY = os.getenv("INDEXNOW_KEY", "")
+INDEXNOW_KEY_FILE = Path(__file__).resolve().parent.parent / "static" / f"{INDEXNOW_KEY}.txt"
+
+
+@app.api_route("/google9bd18844eac022ef.html", methods=["GET", "HEAD"], include_in_schema=False)
+async def google_site_verification():
+    if not GOOGLE_SITE_VERIFICATION.is_file():
+        raise HTTPException(status_code=404, detail="verification file unavailable")
+    return FileResponse(str(GOOGLE_SITE_VERIFICATION), media_type="text/html")
+
+
+@app.api_route(f"/{INDEXNOW_KEY}.txt", methods=["GET", "HEAD"], include_in_schema=False)
+async def indexnow_key_file():
+    if not INDEXNOW_KEY_FILE.is_file():
+        raise HTTPException(status_code=404, detail="IndexNow key file unavailable")
+    return FileResponse(str(INDEXNOW_KEY_FILE), media_type="text/plain")
+
+
 # Serve standalone landing HTML previews at /landing/<slug>.html
 # These are the generated, real-CTA product landing pages.
 
@@ -732,7 +753,7 @@ async def robots_txt(request: Request):
     return PlainTextResponse(body)
 
 
-@app.get("/sitemap.xml", response_class=PlainTextResponse)
+@app.get("/sitemap.xml", response_class=Response)
 async def sitemap_xml(request: Request):
     products = store.list_products(settings.db_path)
     base, _ = public_brand(request)
@@ -781,7 +802,7 @@ async def sitemap_xml(request: Request):
         + "\n".join(rendered_urls)
         + "\n</urlset>\n"
     )
-    return PlainTextResponse(xml)
+    return Response(xml, media_type="application/xml")
 
 
 @app.get("/llms.txt", response_class=PlainTextResponse)
@@ -896,7 +917,12 @@ def _safe_external_url(value: object) -> str:
     except Exception:
         return ""
     host = (parsed.hostname or "").lower()
-    allowed = host == "buy.stripe.com" or host.endswith(".gumroad.com")
+    allowed_payment = host == "buy.stripe.com" or host.endswith(".gumroad.com")
+    # Consultative products may use the canonical operator audit route instead
+    # of a provider checkout. Keep this explicitly allowlisted; never turn the
+    # helper into a generic outbound-link proxy.
+    allowed_operator = host == "aiautomatedsystems.ca" and parsed.path == "/audit/" and not parsed.query
+    allowed = allowed_payment or allowed_operator
     safe_authority = parsed.username is None and parsed.password is None and parsed.port in {None, 443}
     return raw if parsed.scheme == "https" and allowed and safe_authority else ""
 
@@ -1904,8 +1930,8 @@ async def pricing_page():
         name = _html.escape(str(p.get("name") or ""))
         price = _html.escape(str(p.get("price") or ""))
         checkout = _safe_external_url(p.get("checkout_url"))
-        cta = f"<a class='cta' href='{_html.escape(checkout, quote=True)}' target='_blank' rel='noopener'>Buy — {price}</a>" if checkout \
-            else f"<a class='cta' href='/contact?product={slug}'>Discuss — {price}</a>"
+        cta = f"<a class='cta' data-slug='{slug}' data-price='{price}' href='{_html.escape(checkout, quote=True)}' target='_blank' rel='noopener'>Buy — {price}</a>" if checkout \
+            else f"<a class='cta' data-slug='{slug}' href='/contact?product={slug}'>Discuss — {price}</a>"
         rows.append(f"<tr><td><a href='/p/{slug}'>{name}</a></td><td>{price}</td><td>{cta}</td></tr>")
     table = "\n".join(rows)
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
@@ -1930,6 +1956,28 @@ a{{color:#0f766e}} @media(max-width:600px){{table{{font-size:.85rem}} th,td{{pad
 </tbody></table>
 </main>
 <footer><p><a href='/'>← Back to home</a></p></footer>
+<script>
+(function(){{
+  function send(ev, extra){{
+    try{{
+      var body = JSON.stringify(Object.assign({{event:ev, page:'/pricing'}}, extra||{{}}));
+      if (navigator.sendBeacon) {{
+        navigator.sendBeacon('/api/track', new Blob([body], {{type:'application/json'}}));
+      }} else {{
+        fetch('/api/track', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:body, keepalive:true}});
+      }}
+    }} catch(e) {{}}
+  }}
+  send('page_view');
+  document.addEventListener('click', function(e){{
+    var a = e.target.closest && e.target.closest('a.cta');
+    if(!a) return;
+    var slug = a.getAttribute('data-slug') || '';
+    var isBuy = (a.getAttribute('href')||'').indexOf('http') === 0;
+    send(isBuy ? 'checkout_redirect' : 'contact_click', {{slug: slug}});
+  }}, true);
+}})();
+</script>
 </body></html>"""
     return html
 
@@ -1979,7 +2027,7 @@ async def privacy_erase(request: Request, payload: dict = Body(default={})):
         return JSONResponse({"ok": False, "reason": "temporarily_unavailable"}, status_code=503)
 
 
-@app.get("/blog/rss.xml", response_class=PlainTextResponse)
+@app.get("/blog/rss.xml", response_class=Response)
 async def blog_rss():
     import html as _h
     from pathlib import Path as _P
@@ -1991,7 +2039,7 @@ async def blog_rss():
         desc = _h.escape(d.read_text()[:200])
         items.append(f'    <item><title>{_h.escape(title)}</title><link>{link}</link><guid>{link}</guid><description>{desc}</description></item>')
     xml = '<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel>\n<title>AI Automated Systems — Local-AI Ops</title>\n<link>https://aiautomatedsystems.ca/blog</link>\n<description>Self-hosting, ComfyUI, n8n, and private inference guides.</description>\n' + chr(10).join(items) + '\n</channel></rss>'
-    return xml
+    return Response(xml, media_type="application/rss+xml")
 
 
 @app.get("/blog", response_class=HTMLResponse)
@@ -2399,15 +2447,17 @@ async def status_json():
 # ── Free audit guide (lead magnet) ─────────────────────────────────────────────
 @app.get("/free-audit-guide", response_class=HTMLResponse)
 async def free_audit_guide(request: Request):
+    """Truthful entry point: a free questionnaire, not an implied free service."""
     html = """<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
-<title>Free AI Lab Audit Guide — AI Automated Systems</title>
-<meta name='description' content='Get a real GPU-backed audit of your local AI stack. Free, no card required.'>
+<title>Free Private AI Readiness Guide — AI Automated Systems</title>
+<meta name='description' content='Use a privacy-respecting readiness questionnaire to identify practical next steps for a local AI stack.'>
 <style>body{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:640px;margin:6vh auto;padding:0 20px;line-height:1.7}
 h1{font-size:2rem}a{color:#0f766e}.cta{display:inline-block;margin-top:1.2rem;background:#0f766e;color:#fff;text-decoration:none;padding:.7rem 1.3rem;border-radius:6px}</style></head>
-<body><h1>Free AI Lab Audit Guide</h1>
-<p>See exactly where your local AI stack is leaking money — VRAM waste, idle GPUs, and runaway API spend.</p>
-<p>We run a <strong>privacy-redacted readiness score</strong> and show you a bounded preview before you pay. No card required.</p>
-<p><a class='cta' href='/p/ai-lab-health-report'>Get your free audit</a></p>
+<body><h1>Free Private AI Readiness Guide</h1>
+<p>Answer five short questions to identify practical next steps for a local AI setup. The questionnaire does not inspect your system automatically and does not make savings claims.</p>
+<p>You can see the readiness result without a card. Provide an email only if you want an optional follow-up.</p>
+<p><a class='cta' href='/lead'>Start the free readiness questionnaire</a></p>
+<p>Need a paid technical review or implementation scope? <a href='/contact'>Talk to an operator</a>.</p>
 <p><a href='/'>Back to store</a></p></body></html>"""
     return html

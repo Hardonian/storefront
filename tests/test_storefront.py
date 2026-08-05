@@ -1,4 +1,16 @@
+import os
+from pathlib import Path
+
 from fastapi.testclient import TestClient
+
+# Load the gitignored .env like the systemd service does (EnvironmentFile),
+# so INDEXNOW_KEY is present before app.main is imported.
+_ENV = Path(__file__).resolve().parent.parent / ".env"
+if _ENV.exists():
+    for line in _ENV.read_text().splitlines():
+        if line.startswith("INDEXNOW_KEY="):
+            os.environ.setdefault("INDEXNOW_KEY", line.split("=", 1)[1].strip())
+            break
 
 from app.main import app
 
@@ -8,6 +20,34 @@ def test_health():
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+def test_google_site_verification_file_is_served_at_root():
+    r = client.get("/google9bd18844eac022ef.html")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert r.text.strip() == "google-site-verification: google9bd18844eac022ef.html"
+    assert client.head("/google9bd18844eac022ef.html").status_code == 200
+
+
+def test_indexnow_key_file_is_served_at_root():
+    key = os.environ.get("INDEXNOW_KEY", "")
+    assert key, "INDEXNOW_KEY must be set (from .env) for this test"
+    r = client.get(f"/{key}.txt")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/plain")
+    assert r.text.strip() == key
+    assert client.head(f"/{key}.txt").status_code == 200
+
+
+def test_free_audit_guide_is_truthful_and_routes_to_questionnaire():
+    r = client.get("/free-audit-guide")
+    assert r.status_code == 200
+    assert "Free Private AI Readiness Guide" in r.text
+    assert "href='/lead'" in r.text
+    assert "/p/ai-lab-health-report" not in r.text
+    assert "does not inspect your system automatically" in r.text
+
 
 def test_metrics_endpoint(monkeypatch):
     import app.main as m
@@ -167,6 +207,8 @@ def test_unsafe_checkout_scheme_is_rejected():
     assert m._safe_external_url("http://buy.stripe.com/fake") == ""
     assert m._safe_external_url("https://evil.example/pay") == ""
     assert m._safe_external_url("https://buy.stripe.com/test") == "https://buy.stripe.com/test"
+    assert m._safe_external_url("https://aiautomatedsystems.ca/audit/") == "https://aiautomatedsystems.ca/audit/"
+    assert m._safe_external_url("https://aiautomatedsystems.ca/contact?product=x") == ""
 
 
 def test_paid_order_success_and_fulfillment_proxy(monkeypatch):

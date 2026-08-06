@@ -2069,23 +2069,78 @@ async def blog_index():
     from pathlib import Path as _P
     drafts = sorted(_P('/home/scott/ai-lab/reports/content/drafts').glob('*.md'), reverse=True) if _P('/home/scott/ai-lab/reports/content/drafts').exists() else []
     items = []
-    for d in drafts[:30]:
+    cards = []
+    seen_titles = set()
+    for d in drafts[:60]:
         title = d.read_text().splitlines()[0].lstrip('# ').strip() if d.read_text() else d.stem
+        # De-duplicate by displayed title so re-runs on different dates don't
+        # create duplicate-content listings (SEO + readability).
+        if title in seen_titles:
+            continue
+        seen_titles.add(title)
         slug = d.stem
         items.append(f"<li><a href='/blog/{slug}'>{_h.escape(title)}</a></li>")
+        cards.append(
+            f"<a class='post-card' href='{_h.escape('/blog/' + slug)}'>"
+            f"<span class='post-title'>{_h.escape(title)}</span>"
+            f"<span class='post-cta'>Read guide →</span></a>"
+        )
+        if len(cards) >= 30:
+            break
+    cards_html = "".join(cards)
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'><title>Local AI Ops Blog — AI Automated Systems</title>
-<meta name='description' content='Practical guides for private AI labs, ComfyUI, n8n automation, local inference, and GPU operations.'>
+<meta name='description' content='Practical, field-tested guides for private AI labs: ComfyUI, n8n automation, local inference, GPU operations, and sovereign AI strategy.'>
 <link rel='canonical' href='https://aiautomatedsystems.ca/blog'>
 <meta property='og:type' content='website'><meta property='og:title' content='Local AI Ops Blog — AI Automated Systems'>
 <meta property='og:description' content='Practical private-AI, automation, and GPU operations guides.'>
 <meta property='og:url' content='https://aiautomatedsystems.ca/blog'>
-<style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:800px;margin:6vh auto;padding:0 20px;line-height:1.7}}
-h1{{font-size:2rem}} a{{color:#0f766e}} li{{margin:.5rem 0}}</style></head><body>
-<h1>📝 Local-AI Ops Blog</h1>
-<p class='muted'>Practical guides on self-hosting, ComfyUI, n8n, and private inference.</p>
-<ul>{''.join(items)}</ul>
-<p class='muted'><a href='/'>← Home</a> · <a href='/pricing'>Pricing</a></p>
+<style>
+:root{{--bg:#f5f1e8;--card:#fffdf8;--accent:#0f766e;--accent-hover:#115e59;--text:#1f2933;--muted:#66717d;--border:#d8d3ca;--price:#b45309}}
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;background-image:radial-gradient(circle at 10% 0%,rgba(15,118,110,.08),transparent 32rem),radial-gradient(circle at 90% 10%,rgba(180,83,9,.06),transparent 28rem);min-height:100vh}}
+.container{{max-width:920px;margin:0 auto;padding:3rem 1.5rem}}
+.site-nav{{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:3rem;font-size:.9rem}}
+.site-nav .brand{{color:var(--text);font-weight:800;letter-spacing:.02em;text-decoration:none}}
+.site-nav .links{{display:flex;gap:1rem;flex-wrap:wrap}}
+.site-nav a{{color:var(--muted);text-decoration:none}}
+.site-nav a:hover{{color:var(--text)}}
+.eyebrow{{color:var(--accent);text-transform:uppercase;letter-spacing:.16em;font-size:.72rem;font-weight:800}}
+h1{{font-size:clamp(2.4rem,6vw,3.6rem);line-height:1.05;letter-spacing:-.03em;margin:.6rem 0 1rem}}
+.hero-copy{{color:var(--muted);font-size:1.15rem;max-width:680px}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;margin:2.5rem 0}}
+.post-card{{display:flex;flex-direction:column;gap:.5rem;background:rgba(255,253,248,.9);border:1px solid var(--border);box-shadow:0 12px 30px rgba(31,41,51,.05);border-radius:14px;padding:1.25rem 1.4rem;transition:border-color .2s,transform .2s,box-shadow .2s;text-decoration:none;color:var(--text)}}
+.post-card:hover{{border-color:var(--accent);transform:translateY(-4px);box-shadow:0 20px 45px rgba(15,118,110,.12)}}
+.post-title{{font-weight:700;font-size:1.05rem;line-height:1.35}}
+.post-cta{{color:var(--accent);font-weight:600;font-size:.85rem;margin-top:auto}}
+.newsletter{{max-width:640px;margin:1rem auto 2.5rem;padding:1.75rem;background:rgba(255,253,248,.92);border:1px solid var(--border);box-shadow:0 12px 30px rgba(31,41,51,.06);border-radius:16px;text-align:center}}
+.newsletter h2{{font-size:1.3rem;margin-bottom:.25rem}}
+.newsletter p{{color:var(--muted);font-size:.92rem;margin-bottom:1rem}}
+.newsletter form{{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap}}
+.newsletter input[type=email]{{flex:1;min-width:220px;padding:.75rem 1rem;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.95rem}}
+.newsletter .btn{{display:inline-flex;align-items:center;justify-content:center;padding:.75rem 1.3rem;border-radius:10px;font-weight:700;text-decoration:none;background:var(--accent);color:#fff;border:0;cursor:pointer}}
+.newsletter .btn:hover{{background:var(--accent-hover)}}
+.newsletter .msg{{margin-top:.75rem;font-size:.85rem;min-height:1.2em;color:var(--price)}}
+footer{{text-align:center;margin-top:3rem;color:var(--muted);font-size:.85rem}}
+footer a{{color:var(--accent);text-decoration:none}}
+@media(max-width:600px){{.grid{{grid-template-columns:1fr}}}}
+</style></head><body><div class='container'>
+<nav class='site-nav'><a class='brand' href='/'>AI AUTOMATED SYSTEMS</a><div class='links'><a href='/proof-score'>Proof Score</a><a href='/free-audit-guide'>Free Audit</a><a href='/pricing'>Pricing</a><a href='/contact'>Contact</a></div></nav>
+<header><div class='eyebrow'>Field Notes</div><h1>Local-AI Ops Blog</h1><p class='hero-copy'>Practical, field-tested guides for running private AI: ComfyUI workflows, n8n automation, local inference, GPU operations, and sovereign-AI strategy — written by operators who run it.</p></header>
+<div class='newsletter'>
+<h2>Get the AI Lab Monetization Playbook</h2>
+<p>Free 1-page guide + early access to new tooling. No spam. Unsubscribe anytime.</p>
+<form id='nl-form'><input type='email' id='nl-email' placeholder='you@company.com' required><input type='text' id='nl-code' placeholder='discount code (optional)' style='flex:0 0 160px;padding:.75rem 1rem;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.95rem'><button type='submit' class='btn'>Subscribe</button></form>
+<div class='msg' id='nl-msg'></div>
+</div>
+<div class='grid'>{cards_html}</div>
+<footer><p>AI Automated Systems · <a href='/legal/terms-of-service'>Terms</a> · <a href='/legal/privacy-policy'>Privacy</a> · <a href='/unsubscribe'>Unsubscribe</a></p></footer>
+</div>
+<script>
+(function(){{try{{if(!document.cookie.match(/(^|; )aas_sid=/)){{var s='s'+Date.now()+Math.random().toString(36).substr(2,8);document.cookie='aas_sid='+s+'; path=/; max-age=2592000; SameSite=Lax';}}}}catch(e){{}}
+var form=document.getElementById('nl-form'),msg=document.getElementById('nl-msg');if(!form)return;
+form.addEventListener('submit',function(e){{e.preventDefault();var email=document.getElementById('nl-email').value.trim();var code=(document.getElementById('nl-code')||{{}}).value.trim();var website=(document.getElementById('nl-website')||{{}}).value.trim();msg.className='msg';msg.textContent='Submitting…';var tag=code?('discount-'+code.toLowerCase()):'newsletter';fetch('/api/subscribe',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{email:email,tag:tag,website:website}})}}).then(function(r){{return r.ok?r.json():Promise.reject(r.status);}}).then(function(){{msg.className='msg';msg.textContent='✅ Subscribed — check your inbox.';form.reset();}}).catch(function(){{msg.className='msg';msg.textContent='Something went wrong. Try again.';}});}});
+</script>
 </body></html>"""
     return html
 
@@ -2145,11 +2200,53 @@ async def blog_post(slug: str):
 <meta property='og:type' content='article'><meta property='og:title' content='{title_html}'>
 <meta property='og:description' content='{description_html}'><meta property='og:url' content='{canonical}'>
 <script type='application/ld+json'>{article_schema}</script>
-<style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:800px;margin:6vh auto;padding:0 20px;line-height:1.7}}
-h1,h2{{color:#fff}} a{{color:#0f766e}} p,li{{color:#52606d}}</style></head><body>
+<style>
+:root{{--bg:#f5f1e8;--card:#fffdf8;--accent:#0f766e;--accent-hover:#115e59;--text:#1f2933;--muted:#52606d;--border:#d8d3ca;--price:#b45309}}
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.7;background-image:radial-gradient(circle at 10% 0%,rgba(15,118,110,.08),transparent 32rem),radial-gradient(circle at 90% 10%,rgba(180,83,9,.06),transparent 28rem);min-height:100vh}}
+.container{{max-width:760px;margin:0 auto;padding:3rem 1.5rem}}
+.site-nav{{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:2.5rem;font-size:.9rem}}
+.site-nav .brand{{color:var(--text);font-weight:800;letter-spacing:.02em;text-decoration:none}}
+.site-nav .links{{display:flex;gap:1rem;flex-wrap:wrap}}
+.site-nav a{{color:var(--muted);text-decoration:none}}
+.site-nav a:hover{{color:var(--text)}}
+.eyebrow{{color:var(--accent);text-transform:uppercase;letter-spacing:.16em;font-size:.72rem;font-weight:800}}
+h1{{font-size:clamp(2rem,5vw,3rem);line-height:1.1;letter-spacing:-.02em;margin:.6rem 0 1rem;color:var(--text)}}
+h2{{font-size:1.5rem;margin:2rem 0 .75rem;color:var(--text)}}
+p,li{{color:var(--muted);margin:.6rem 0}}
+a{{color:var(--accent);text-decoration:none}}
+a:hover{{text-decoration:underline}}
+hr{{border:0;border-top:1px solid var(--border);margin:2.5rem 0}}
+.cta-band{{max-width:640px;margin:2rem auto;padding:1.5rem;background:rgba(255,253,248,.92);border:1px solid var(--border);box-shadow:0 12px 30px rgba(31,41,51,.06);border-radius:16px}}
+.cta-band h3{{font-size:1.2rem;margin-bottom:.5rem;color:var(--text)}}
+.cta-band ul{{list-style:none;padding:0}}
+.cta-band li{{padding:.35rem 0;border-bottom:1px solid var(--border)}}
+.cta-band li:last-child{{border-bottom:0}}
+.lead-cta{{display:inline-block;margin-top:1rem;background:var(--accent);color:#fff;font-weight:700;padding:.7rem 1.2rem;border-radius:10px}}
+.lead-cta:hover{{background:var(--accent-hover);text-decoration:none}}
+footer{{text-align:center;margin-top:3rem;color:var(--muted);font-size:.85rem}}
+footer a{{color:var(--accent)}}
+</style></head><body><div class='container'>
+<nav class='site-nav'><a class='brand' href='/'>AI AUTOMATED SYSTEMS</a><div class='links'><a href='/blog'>Blog</a><a href='/proof-score'>Proof Score</a><a href='/pricing'>Pricing</a><a href='/contact'>Contact</a></div></nav>
+<div class='eyebrow'>Field Guide</div>
+<h1>{title_html}</h1>
+<p style='color:var(--muted);font-size:1.05rem'>{description_html}</p>
 {body}
-{product_footer}
-<p class='muted'><a href='/blog'>← All posts</a></p>
+<div class='cta-band'>
+<h3>Local-first AI drafting — built for regulated work</h3>
+<ul>
+<li><a href='/p/sentinel-note'>Sentinel Note</a> — clinical SOAP/referral drafting ($297)</li>
+<li><a href='/p/ops-draft'>OpsDraft</a> — legal/municipal drafting ($197)</li>
+<li><a href='/p/ledger-draft'>LedgerDraft</a> — finance drafting ($197)</li>
+<li><a href='/p/hr-draft'>HRDraft</a> — HR/policy drafting ($197)</li>
+<li><a href='/p/hardonia-enterpriser'>Hardonia Enterpriser</a> — all 4 suites ($497)</li>
+<li><a href='/p/sovereign-supercharger'>Sovereign Supercharger</a> — everything + IP pack + audit ($1497)</li>
+<li><a href='/p/sovereign-ai-audit'>Sovereign AI Audit</a> — $297 expert review (credited)</li>
+</ul>
+<p><a class='lead-cta' href='/lead'>🏠 Run the free Sovereign AI Readiness Score →</a></p>
+</div>
+<footer><p><a href='/blog'>← All posts</a> · AI Automated Systems · <a href='/legal/terms-of-service'>Terms</a> · <a href='/legal/privacy-policy'>Privacy</a></p></footer>
+</div>
 </body></html>"""
     return html
 

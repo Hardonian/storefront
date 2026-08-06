@@ -1465,6 +1465,44 @@ async def product_page(slug: str, request: Request):
     if image_absolute:
         product_schema["image"] = image_absolute
     product_schema_json = json.dumps(product_schema, ensure_ascii=False).replace("</", "<\\/")
+    # FAQ rich-results: a small, real Q&A set per product category so search
+    # engines can surface expandable FAQ snippets (organic CTR lift).
+    _FAQ = {
+        "default": [
+            ("Is this run privately / on my own infrastructure?",
+             "Yes. The deliverables are local-first: documentation, workflows, and (where applicable) models run on infrastructure you control. No data leaves your environment unless you choose."),
+            ("What is included?",
+             "Every pack ships documented deliverables, setup expectations, and a support path. Specific contents are listed on the product page and in the buyer documents."),
+            ("Do you offer onboarding or human review?",
+             "Higher-tier and expert-review offers begin with human scoping and a documented handoff. Regulated decisions remain with you."),
+            ("How does licensing work?",
+             "Buy-once packs include the documented materials and updates noted on the product page. Enterprise tiers add managed install and ongoing support."),
+        ],
+        "gpu": [
+            ("Is GPU capacity isolated from other tenants?",
+             "Yes. Capacity is exposed with tenant isolation and monitoring where applicable; credentials and access follow the product terms."),
+            ("What does it cost vs cloud?",
+             "The on-page ROI calculator shows a planning comparison vs ~$800/mo cloud GPU spend at a fixed rate. Confirm service terms before purchase."),
+        ],
+        "draft": [
+            ("Is this suitable for regulated work?",
+             "The drafting packs are local-first aids, not a substitute for a qualified professional. Human review is required before any production or clinical/legal use."),
+            ("What formats are delivered?",
+             "Documented templates and local workflows you can run and adapt, with a support path for reproducible execution."),
+        ],
+    }
+    _cat = "gpu" if "gpu" in slug or "compute" in slug or "inference" in slug else (
+        "draft" if slug in {"sentinel-note", "ops-draft", "ledger-draft", "hr-draft"} else "default")
+    _faq_pairs = _FAQ.get(_cat, _FAQ["default"])
+    faq_schema_json = json.dumps({
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {"@type": "Question", "name": q,
+             "acceptedAnswer": {"@type": "Answer", "text": a}}
+            for q, a in _faq_pairs
+        ],
+    }, ensure_ascii=False).replace("</", "<\\/")
     platform_layer = {
         "sovereign-ops-score": ("01 · PROVE", "Establish a measurable baseline before you scale."),
         "ai-box-doctor": ("01 · PROVE", "Keep the box healthy after the audit."),
@@ -1545,6 +1583,7 @@ footer a{{color:var(--accent);text-decoration:none}}
 <div class="platform-layer"><b>{platform_layer[0]}</b><span>{platform_layer[1]}</span></div>
 <!-- SEO: JSON-LD Product -->
 <script type="application/ld+json">{product_schema_json}</script>
+<script type="application/ld+json">{faq_schema_json}</script>
 <h1>{name_html}</h1>
 <span class="badge">{status_html}</span>
 { f'<img class="img" src="{img}" alt="{name_html}">' if img else '' }

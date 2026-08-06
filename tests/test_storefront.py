@@ -1,5 +1,10 @@
+import os
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
+# INDEXNOW_KEY is loaded into env by tests/conftest.py (from .env, like the
+# systemd EnvironmentFile) before any test module imports app.main.
 from app.main import app
 
 client = TestClient(app)
@@ -8,6 +13,34 @@ def test_health():
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+def test_google_site_verification_file_is_served_at_root():
+    r = client.get("/google9bd18844eac022ef.html")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert r.text.strip() == "google-site-verification: google9bd18844eac022ef.html"
+    assert client.head("/google9bd18844eac022ef.html").status_code == 200
+
+
+def test_indexnow_key_file_is_served_at_root():
+    key = os.environ.get("INDEXNOW_KEY", "")
+    assert key, "INDEXNOW_KEY must be set (from .env) for this test"
+    r = client.get(f"/{key}.txt")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/plain")
+    assert r.text.strip() == key
+    assert client.head(f"/{key}.txt").status_code == 200
+
+
+def test_free_audit_guide_is_truthful_and_routes_to_questionnaire():
+    r = client.get("/free-audit-guide")
+    assert r.status_code == 200
+    assert "Free Private AI Readiness Guide" in r.text
+    assert "href='/lead'" in r.text
+    assert "/p/ai-lab-health-report" not in r.text
+    assert "does not inspect your system automatically" in r.text
+
 
 def test_metrics_endpoint(monkeypatch):
     import app.main as m
@@ -167,6 +200,8 @@ def test_unsafe_checkout_scheme_is_rejected():
     assert m._safe_external_url("http://buy.stripe.com/fake") == ""
     assert m._safe_external_url("https://evil.example/pay") == ""
     assert m._safe_external_url("https://buy.stripe.com/test") == "https://buy.stripe.com/test"
+    assert m._safe_external_url("https://aiautomatedsystems.ca/audit/") == "https://aiautomatedsystems.ca/audit/"
+    assert m._safe_external_url("https://aiautomatedsystems.ca/contact?product=x") == ""
 
 
 def test_paid_order_success_and_fulfillment_proxy(monkeypatch):
@@ -426,3 +461,14 @@ def test_product_price_and_primary_cta_are_consistent_across_buyer_surfaces(monk
         assert "Pro $49" in html, name
         assert "https://buy.stripe.com/consistent" in html, name
     assert "href=\"https://shop.gumroad.com/l/alternate\" class=\"btn btn-primary\"" not in surfaces["home"]
+
+
+def test_buyer_portal_has_status_and_recovery_path():
+    response = client.get("/buyer?session_id=cs_portal_test")
+    assert response.status_code == 200
+    assert "Buyer delivery portal" in response.text
+    assert "cs_portal_test" in response.text
+    assert "Check delivery status" in response.text
+    assert "/fulfillment.js" in response.text
+    assert "Refund or support" in response.text
+    assert "api_key" not in response.text

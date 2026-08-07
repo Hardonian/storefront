@@ -52,7 +52,7 @@ def list_products(db_path: Path | str = DEFAULT_DB_PATH) -> list[dict[str, Any]]
             "SELECT slug, name, status, audience, pain, offer, price, "
             "checkout_url, gumroad_url, image_path, landing_path, "
             "readiness_score, created_at, updated_at, dashboard_url, "
-            "dashboard_features "
+            "dashboard_features, stripe_sku "
             "FROM products ORDER BY readiness_score DESC, name ASC"
         ).fetchall()
     return [dict(r) for r in rows]
@@ -65,7 +65,7 @@ def get_product(slug: str, db_path: Path | str = DEFAULT_DB_PATH) -> dict[str, A
             "checkout_url, gumroad_url, image_path, landing_path, "
             "deliverable_path, readiness_score, "
             "dashboard_url, dashboard_features, "
-            "created_at, updated_at FROM products WHERE slug = ?",
+            "created_at, updated_at, stripe_sku FROM products WHERE slug = ?",
             (slug,),
         ).fetchone()
     return dict(row) if row else None

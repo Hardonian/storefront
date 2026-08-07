@@ -38,3 +38,6 @@ uv.lock
 
 # Cleanup additions
 .turbo
+
+# CI-hermetic IndexNow key file (written by tests when no operator .env exists)
+static/test-indexnow-key-not-for-prod.txt

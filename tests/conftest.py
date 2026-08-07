@@ -18,15 +18,28 @@ os.environ["LEGAL_DIR"] = str(_TEST_LEGAL)
 # Hermetic operator API key for authed surfaces (/api/flags, /api/analytics, ...).
 # Env vars take precedence over the repo .env in pydantic-settings.
 os.environ["API_KEY"] = "test-operator-key-not-for-prod"
-# Load INDEXNOW_KEY from the gitignored .env (production loads it via systemd
-# EnvironmentFile). Set before any test module imports app.main so the module
-# constant is correct regardless of test collection order.
+# Load INDEXNOW_KEY from the gitignored .env if present, otherwise fall back to
+# a deterministic hermetic CI key. Also materialize the static key file the app
+# serves, so the test never depends on the operator's real .env or static dir.
+# Set before any test module imports app.main so the module constant is correct.
 _ENV = Path(__file__).resolve().parent.parent / ".env"
+_indexnow_env_key = ""
 if _ENV.exists():
     for _line in _ENV.read_text().splitlines():
         if _line.startswith("INDEXNOW_KEY="):
-            os.environ.setdefault("INDEXNOW_KEY", _line.split("=", 1)[1].strip())
+            _indexnow_env_key = _line.split("=", 1)[1].strip()
             break
+if _indexnow_env_key:
+    os.environ["INDEXNOW_KEY"] = _indexnow_env_key
+else:
+    # Hermetic CI key: no operator .env needed; materialize the static file the
+    # app serves so the IndexNow test is deterministic and portable.
+    os.environ["INDEXNOW_KEY"] = "test-indexnow-key-not-for-prod"
+    _STATIC = Path(__file__).resolve().parent.parent / "static"
+    _STATIC.mkdir(parents=True, exist_ok=True)
+    (_STATIC / f"{os.environ['INDEXNOW_KEY']}.txt").write_text(
+        os.environ["INDEXNOW_KEY"], encoding="utf-8"
+    )
 
 with sqlite3.connect(_TEST_DB) as _conn:
     _conn.executescript(

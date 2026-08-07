@@ -36,7 +36,8 @@ with sqlite3.connect(_TEST_DB) as _conn:
             pain TEXT, offer TEXT, price TEXT, checkout_url TEXT,
             gumroad_url TEXT, image_path TEXT, landing_path TEXT,
             deliverable_path TEXT, readiness_score INTEGER, dashboard_url TEXT,
-            dashboard_features TEXT, created_at TEXT, updated_at TEXT
+            dashboard_features TEXT, created_at TEXT, updated_at TEXT,
+            stripe_sku TEXT
         );
         CREATE TABLE events (
             id INTEGER PRIMARY KEY AUTOINCREMENT, product_slug TEXT,
@@ -57,11 +58,11 @@ with sqlite3.connect(_TEST_DB) as _conn:
         ('comfyui-workflow-pack', 'ComfyUI Workflow Pack', 'ready', 'Creators',
          'Workflow drift', 'Reusable local image workflows', 'Pro $49',
          'https://buy.stripe.com/ci-test', '', '', '', '', 100, '', '',
-         datetime('now'), datetime('now')),
+         datetime('now'), datetime('now'), ''),
         ('ci-product', 'CI Product', 'ready', 'Operators', 'Drift',
          'A deterministic test catalog item', 'Pro $49',
          'https://buy.stripe.com/ci-test', '', '', '', '', 100, '', '',
-         datetime('now'), datetime('now'));
+         datetime('now'), datetime('now'), '');
         """
     )
 

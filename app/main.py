@@ -23,7 +23,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape as _xml_escape
 
 import httpx
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import (
@@ -2178,21 +2178,21 @@ a{{color:#0f766e}} @media(max-width:600px){{table{{font-size:.85rem}} th,td{{pad
 
 @app.get("/factory", response_class=HTMLResponse)
 async def factory_page():
-    html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+    html = """<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>AI Lab Product Factory — $497/mo | AI Automated Systems</title>
 <meta name='description' content='We turn your local AI lab into a shipping product line. One command launches a new sellable digital product — page, Stripe price, fulfillment, and download — every week.'>
 <link rel='canonical' href='https://aiautomatedsystems.ca/factory'>
 <meta property='og:type' content='website'><meta property='og:title' content='AI Lab Product Factory'>
 <meta property='og:description' content='Turn your AI lab into a product line. $497/mo.'>
-<style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:920px;margin:5vh auto;padding:0 20px;line-height:1.6}}
-h1{{font-size:2.1rem}} h2{{margin-top:1.8rem;color:#0f766e}}
-.tier{{border:1px solid #d8d3ca;border-radius:14px;padding:1.3rem 1.5rem;margin:1rem 0;background:#fffdf8}}
-.tier.best{{border-color:#0f766e;box-shadow:0 10px 30px rgba(15,118,110,.12)}}
-.price{{font-size:1.8rem;font-weight:800;color:#b45309}}
-.cta{{display:inline-block;background:#0f766e;color:#fff;padding:.8rem 1.6rem;border-radius:10px;text-decoration:none;font-weight:700;margin-top:1rem}}
-ul{{padding-left:1.2rem}} li{{margin:.3rem 0}}
-.nav a{{color:#0f766e;text-decoration:none}}</style></head>
+<style>body{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:920px;margin:5vh auto;padding:0 20px;line-height:1.6}
+h1{font-size:2.1rem} h2{margin-top:1.8rem;color:#0f766e}
+.tier{border:1px solid #d8d3ca;border-radius:14px;padding:1.3rem 1.5rem;margin:1rem 0;background:#fffdf8}
+.tier.best{border-color:#0f766e;box-shadow:0 10px 30px rgba(15,118,110,.12)}
+.price{font-size:1.8rem;font-weight:800;color:#b45309}
+.cta{display:inline-block;background:#0f766e;color:#fff;padding:.8rem 1.6rem;border-radius:10px;text-decoration:none;font-weight:700;margin-top:1rem}
+ul{padding-left:1.2rem} li{margin:.3rem 0}
+.nav a{color:#0f766e;text-decoration:none}</style></head>
 <body>
 <nav class='nav'><a href='/'>← The Platform</a> · <a href='/pricing'>Pricing</a> · <a href='/contact'>Talk to us</a></nav>
 <main>
@@ -2416,20 +2416,6 @@ async def blog_post(slug: str):
         elif s:
             out.append(f"<p>{_h.escape(s)}</p>")
     body = "\n".join(out)
-    product_footer = """
-<hr style="margin:2.5rem 0;border-color:#222">
-<h3>Local-first AI drafting — built for regulated work</h3>
-<ul>
-<li><a href="/p/sentinel-note">Sentinel Note</a> — clinical SOAP/referral drafting ($297)</li>
-<li><a href="/p/ops-draft">OpsDraft</a> — legal/municipal drafting ($197)</li>
-<li><a href="/p/ledger-draft">LedgerDraft</a> — finance drafting ($197)</li>
-<li><a href="/p/hr-draft">HRDraft</a> — HR/policy drafting ($197)</li>
-<li><a href="/p/hardonia-enterpriser">Hardonia Enterpriser</a> — all 4 suites ($497)</li>
-<li><a href="/p/sovereign-supercharger">Sovereign Supercharger</a> — everything + IP pack + audit ($1497)</li>
-<li><a href="/p/sovereign-ai-audit">Sovereign AI Audit</a> — $297 expert review (credited)</li>
-</ul>
-<p><a href="/lead">🏠 Run the free Sovereign AI Readiness Score →</a></p>
-"""
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'><title>{title_html} — AI Automated Systems</title>
 <meta name='description' content='{description_html}'><link rel='canonical' href='{canonical}'>
@@ -2627,7 +2613,7 @@ async def get_flags(x_api_key: str | None = Header(None)):
     exp = flag_engine._active_experiment(flag_engine.DEFAULT_FLAG_PATH)  # noqa: SLF001 — read-only, engine-local
     return {
         "flags": flags,
-        "schema": {k: v for k, v in flag_engine.FLAG_SCHEMA.items()},
+        "schema": dict(flag_engine.FLAG_SCHEMA),
         "active_experiment": exp,
         "flag_file": str(flag_engine.DEFAULT_FLAG_PATH),
     }
@@ -2652,7 +2638,7 @@ async def set_flag(payload: FlagUpdate, x_api_key: str | None = Header(None)):
         try:
             fval = float(payload.value)
         except (TypeError, ValueError):
-            raise HTTPException(status_code=422, detail=f"{payload.name} requires a float")
+            raise HTTPException(status_code=422, detail=f"{payload.name} requires a float") from None
         if not 0.0 <= fval <= 1.0:
             raise HTTPException(status_code=422, detail="sampling must be 0..1")
         payload.value = fval
@@ -2697,7 +2683,7 @@ async def control_experiment(payload: ExperimentControl, x_api_key: str | None =
     try:
         exp = flag_engine.start_experiment(payload.flag, payload.force_winner)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     _record_event(
         f"flag_experiment:start:{payload.flag}"
         + (f":winner={payload.force_winner}" if payload.force_winner else ""),

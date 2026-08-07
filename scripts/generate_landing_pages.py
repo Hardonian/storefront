@@ -22,8 +22,8 @@ broken purchase path that the cross-layer verifier correctly caught.
 Run: .venv/bin/python scripts/generate_landing_pages.py
 """
 from __future__ import annotations
+
 import html
-import json
 import sqlite3
 from pathlib import Path
 
@@ -89,7 +89,10 @@ def _cta(sku: str, checkout_url: str, gumroad_url: str = "") -> str:
         )
     # 4) Contact-only / pricing-on-contact
     elif "contact" in checkout.lower():
-        parts.append(f'<a class=cta href="/contact?product={html.escape(sku, quote=True)}">📩 Contact for pricing →</a>')
+        parts.append(
+            f'<a class=cta href="/contact?product={html.escape(sku, quote=True)}">'
+            f'📩 Contact for pricing →</a>'
+        )
     # 5) No usable path: contact so the lead is never lost (no broken form).
     else:
         parts.append(f'<a class=cta href="/contact?product={html.escape(sku, quote=True)}">📩 Get access →</a>')
@@ -113,8 +116,9 @@ def landing_html(row: dict) -> str:
 <style>body{{font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:760px;margin:0 auto;padding:2rem 1rem;color:#171717;line-height:1.6}}
 h1{{font-size:2rem;margin-bottom:.3rem}} .price{{font-size:1.5rem;font-weight:700;color:#6d28d9;margin:.5rem 0}}
 .badge{{display:inline-block;background:#f3e8ff;color:#6d28d9;border-radius:999px;padding:.2rem .8rem;font-size:.8rem;margin:.2rem}}
-.cta-row{{margin:1.5rem 0}} .cta{{display:inline-block;background:#6d28d9;color:#fff;border:0;border-radius:.5rem;
-padding:.9rem 1.6rem;font-size:1.05rem;cursor:pointer;text-decoration:none}} .cta:hover{{background:#5b21b6}}
+.cta-row{{margin:1.5rem 0}} .cta{{display:inline-block;background:#6d28d9;color:#fff;
+border:0;border-radius:.5rem;padding:.9rem 1.6rem;font-size:1.05rem;cursor:pointer;text-decoration:none}}
+.cta:hover{{background:#5b21b6}}
 form{{display:inline-block}} .cards{{display:flex;gap:.6rem;flex-wrap:wrap;margin:1rem 0}}
 .card{{flex:1;min-width:200px;border:1px solid #e5e7eb;border-radius:.6rem;padding:1rem}}
 footer{{margin-top:2rem;font-size:.8rem;color:#6b7280}}</style></head>

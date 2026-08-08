@@ -72,7 +72,8 @@ def _init_analytics(db_path: str) -> None:
 
 def _record_event(event: str, page: str | None, product_slug: str | None,
                   checkout_url: str | None, session_id: str | None,
-                  referrer: str | None, traffic_class: str = "unclassified") -> None:
+                  referrer: str | None, traffic_class: str = "unclassified",
+                  src: str | None = None) -> None:
     import json as _json
     payload = _json.dumps({
         "page": page,
@@ -80,6 +81,7 @@ def _record_event(event: str, page: str | None, product_slug: str | None,
         "session_id": session_id,
         "referrer": referrer,
         "traffic_class": traffic_class,
+        "src": src,
     }, separators=(",", ":"))
     conn = _analytics_connection(settings.db_path)
     try:
@@ -421,6 +423,75 @@ async def health():
     return {"status": "ok", "service": "storefront", "version": app.version}
 
 
+# Marketing aliases: /store and /shop both land on the product grid (/).
+@app.get("/store")
+@app.get("/shop")
+async def store_alias():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/", status_code=307)
+
+
+# Legal pages (Stripe requires these; buyers need them).
+_LEGAL = {
+    "terms": ("Terms of Service",
+        "These digital products are delivered instantly as downloadable files. All sales are final — "
+        "due to the intangible, instantly-delivered nature of the goods, we do not offer refunds once "
+        "a download link has been generated. Your purchase constitutes a license to use the asset for "
+        "your own sovereign projects; reselling or redistributing the raw files is prohibited. We are "
+        "not liable for how you deploy AI-generated or AI-assisted assets; you remain responsible for "
+        "compliance with the laws of your jurisdiction. Questions: open a support request from any "
+        "product page."),
+    "refund": ("Refund Policy",
+        "All products are digital, instantly delivered, and non-returnable. Because the deliverable is "
+        "released the moment payment clears, refunds are not issued after a download link is generated. "
+        "If you were charged in error or did not receive your download link, contact support within 7 "
+        "days of purchase and we will re-issue the link or reverse the charge at our discretion. Chargebacks "
+        "on successfully delivered orders may result in loss of access."),
+    "privacy": ("Privacy Policy",
+        "We collect only what is required to fulfill your order: the email you enter at checkout (if any) "
+        "and your Stripe payment reference. We do not sell or share personal data. Download links are "
+        "signed, time-limited, and tied to your purchase. You may request deletion of your order record by "
+        "opening a support request. Payments are processed by Stripe; we never see your card number."),
+}
+@app.get("/terms")
+@app.get("/refund")
+@app.get("/privacy")
+@app.get("/legal")
+async def legal_pages(request: Request):
+    from fastapi.responses import HTMLResponse
+    seg = request.url.path.strip("/") or "terms"
+    title, body = _LEGAL.get(seg, _LEGAL["terms"])
+    return HTMLResponse(f"""<!doctype html><meta charset='utf-8'><title>{title} — Hardonia</title>
+<style>body{{font-family:system-ui;max-width:720px;margin:3rem auto;padding:0 1rem;color:#171717;line-height:1.6}}h1{{font-size:1.6rem}}a{{color:#6d28d9}}</style>
+<h1>{title}</h1><p>{body}</p><p><a href='/'>← Back to store</a> · <a href='/contact'>Support</a></p>""")
+
+
+# Proxy /audit/* to the audit-api (checkout Session flow + success page) so the
+# buy buttons work whether the browser hits Caddy or the storefront origin directly.
+_AUDIT_API_URL = os.getenv("AUDIT_API_URL", "http://127.0.0.1:8011")
+
+
+@app.api_route(
+    "/audit/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+)
+async def proxy_audit(path: str, request: Request):
+    url = f"{_AUDIT_API_URL}/audit/{path}"
+    body = await request.body()
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length")}
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.request(
+            request.method, url, params=request.query_params,
+            content=body, headers=headers,
+        )
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        headers={k: v for k, v in resp.headers.items() if k.lower() not in ("transfer-encoding", "connection")},
+        media_type=resp.headers.get("content-type"),
+    )
+
+
 @app.get("/api/platform-truth")
 async def platform_truth_api():
     """Sanitized public readiness summary; never returns raw evidence or paths."""
@@ -613,19 +684,36 @@ AU_BOT_URL = os.getenv("AU_BOT_URL", "http://127.0.0.1:8071/au/ask")
 AU_WIDGET_JS = r"""
 (function(){
   if (document.getElementById('au-widget')) return;
+  var AVATAR = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="36" height="36">' +
+    '<circle cx="48" cy="48" r="44" fill="#0f766e"/>' +
+    '<circle cx="48" cy="48" r="40" fill="#101014"/>' +
+    '<circle cx="48" cy="48" r="33" fill="#0f766e"/>' +
+    '<circle cx="39" cy="44" r="5.2" fill="#0b1220"/><circle cx="57" cy="44" r="5.2" fill="#0b1220"/>' +
+    '<path d="M36 60 Q48 70 60 60" stroke="#0b1220" stroke-width="4" fill="none" stroke-linecap="round"/>' +
+    '</svg>');
   var s = document.createElement('style');
-  s.textContent = '.au-fab{position:fixed;bottom:18px;right:18px;z-index:9999;background:#0f766e;color:#fff;border:0;border-radius:50px;padding:12px 18px;font:600 14px system-ui;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.35)}'
+  s.textContent = '.au-fab{position:fixed;bottom:18px;right:18px;z-index:9999;background:#0f766e;color:#fff;border:0;border-radius:50px;padding:10px 14px 10px 10px;display:flex;align-items:center;gap:8px;font:600 14px system-ui;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.35)}'
+    + '.au-fab img{width:30px;height:30px;border-radius:50%}'
     + '.au-box{position:fixed;bottom:74px;right:18px;z-index:9999;width:340px;max-width:92vw;background:#fffdf8;color:#1f2933;border:1px solid #d8d3ca;border-radius:14px;overflow:hidden;font:14px system-ui}'
-    + '.au-box header{background:#1f1f27;padding:10px 14px;font-weight:700;display:flex;justify-content:space-between}'
+    + '.au-box header{background:#1f1f27;color:#fff;padding:10px 14px;font-weight:700;display:flex;align-items:center;gap:10px;justify-content:space-between}'
+    + '.au-box header .id{display:flex;align-items:center;gap:10px}'
+    + '.au-box header img{width:34px;height:34px;border-radius:50%}'
     + '.au-box .log{padding:12px;max-height:260px;overflow:auto;min-height:80px}'
     + '.au-box .me{text-align:right;margin:6px 0}.au-box .me span{background:#0f766e;color:#fff;padding:7px 11px;border-radius:12px;display:inline-block;text-align:left}'
-    + '.au-box .bot{margin:6px 0}.au-box .bot span{background:#23232b;padding:7px 11px;border-radius:12px;display:inline-block;white-space:pre-wrap}'
+    + '.au-box .bot{margin:6px 0;display:flex;gap:8px;align-items:flex-start}.au-box .bot img{width:26px;height:26px;border-radius:50%;flex:0 0 auto;margin-top:2px}.au-box .bot span{background:#23232b;color:#e6e6e6;padding:7px 11px;border-radius:12px;display:inline-block;white-space:pre-wrap}'
     + '.au-box input{width:100%;border:0;border-top:1px solid #d8d3ca;background:#fffdf8;color:#1f2933;padding:11px 14px;box-sizing:border-box;outline:none}';
   document.head.appendChild(s);
-  var fab = document.createElement('button'); fab.className='au-fab'; fab.id='au-widget'; fab.textContent='💬 Support';
+  var fab = document.createElement('button'); fab.className='au-fab'; fab.id='au-widget';
+  var fabImg=document.createElement('img'); fabImg.src=AVATAR; fabImg.alt=''; fab.appendChild(fabImg); fab.appendChild(document.createTextNode('Support'));
   var box = document.createElement('div'); box.className='au-box'; box.style.display='none';
-  var head=document.createElement('header');head.appendChild(document.createTextNode('Hardonia Support '));
-  var close=document.createElement('button');close.id='au-x';close.type='button';close.textContent='✕';close.setAttribute('aria-label','Close support');head.appendChild(close);
+  var head=document.createElement('header');
+  var id=document.createElement('div'); id.className='id';
+  var hImg=document.createElement('img'); hImg.src=AVATAR; hImg.alt='AU avatar';
+  var hTxt=document.createElement('span'); hTxt.textContent='Hardonia Support';
+  id.appendChild(hImg); id.appendChild(hTxt);
+  var close=document.createElement('button');close.id='au-x';close.type='button';close.textContent='✕';close.setAttribute('aria-label','Close support');
+  head.appendChild(id); head.appendChild(close);
   var chatLog=document.createElement('div');chatLog.className='log';chatLog.id='au-log';
   var chatInput=document.createElement('input');chatInput.id='au-in';chatInput.placeholder='Ask about your key, billing, access…';
   box.appendChild(head);box.appendChild(chatLog);box.appendChild(chatInput);
@@ -633,7 +721,12 @@ AU_WIDGET_JS = r"""
   fab.onclick=function(){box.style.display=box.style.display==='none'?'block':'none';};
   document.getElementById('au-x').onclick=function(){box.style.display='none';};
   var inp=document.getElementById('au-in'), log=document.getElementById('au-log');
-  function add(who,text){var d=document.createElement('div');d.className=who;var s=document.createElement('span');s.textContent=text;d.appendChild(s);log.appendChild(d);log.scrollTop=log.scrollHeight;}
+  function add(who,text){
+    var d=document.createElement('div'); d.className=who;
+    if(who==='bot'){var i=document.createElement('img'); i.src=AVATAR; i.alt=''; d.appendChild(i);}
+    var span=document.createElement('span'); span.textContent=text; d.appendChild(span);
+    log.appendChild(d); log.scrollTop=log.scrollHeight;
+  }
   add('bot','👋 I\'m AU, Hardonia\'s auth & access assistant. Ask about API keys, 403/429 errors, credits, or access.');
   inp.addEventListener('keydown',function(e){
     if(e.key!=='Enter'||!inp.value.trim())return;
@@ -930,7 +1023,8 @@ def _safe_external_url(value: object) -> str:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     base, site_name = public_brand(request)
-    products = store.list_products(settings.db_path)
+    sort_by = request.query_params.get("sort", "readiness")
+    products = store.list_products(settings.db_path, sort=sort_by)
     # Rewrite absolute image_path -> served /product-assets/ URL so covers load.
     for p in products:
         ip = p.get("image_path") or ""
@@ -944,7 +1038,7 @@ async def index(request: Request):
     saleable_products = [p for p in products if p.get("status") in {"ready", "early-access"}]
     featured_products = [p for p in saleable_products if p.get("slug") in {
         "sovereign-mission-intelligence", "sovereign-ops-score", "ai-box-doctor", "private-inference-access",
-        "hardonia-compute-api-access", "n8n-automation-kit", "comfyui-workflow-pack",
+        "ai-portrait-studio", "hardonia-compute-api-access", "n8n-automation-kit", "comfyui-workflow-pack",
         "autonomous-revenue-loop",
     }]
     featured_slugs = {p.get("slug") for p in featured_products}
@@ -1465,6 +1559,44 @@ async def product_page(slug: str, request: Request):
     if image_absolute:
         product_schema["image"] = image_absolute
     product_schema_json = json.dumps(product_schema, ensure_ascii=False).replace("</", "<\\/")
+    # FAQ rich-results: a small, real Q&A set per product category so search
+    # engines can surface expandable FAQ snippets (organic CTR lift).
+    _FAQ = {
+        "default": [
+            ("Is this run privately / on my own infrastructure?",
+             "Yes. The deliverables are local-first: documentation, workflows, and (where applicable) models run on infrastructure you control. No data leaves your environment unless you choose."),
+            ("What is included?",
+             "Every pack ships documented deliverables, setup expectations, and a support path. Specific contents are listed on the product page and in the buyer documents."),
+            ("Do you offer onboarding or human review?",
+             "Higher-tier and expert-review offers begin with human scoping and a documented handoff. Regulated decisions remain with you."),
+            ("How does licensing work?",
+             "Buy-once packs include the documented materials and updates noted on the product page. Enterprise tiers add managed install and ongoing support."),
+        ],
+        "gpu": [
+            ("Is GPU capacity isolated from other tenants?",
+             "Yes. Capacity is exposed with tenant isolation and monitoring where applicable; credentials and access follow the product terms."),
+            ("What does it cost vs cloud?",
+             "The on-page ROI calculator shows a planning comparison vs ~$800/mo cloud GPU spend at a fixed rate. Confirm service terms before purchase."),
+        ],
+        "draft": [
+            ("Is this suitable for regulated work?",
+             "The drafting packs are local-first aids, not a substitute for a qualified professional. Human review is required before any production or clinical/legal use."),
+            ("What formats are delivered?",
+             "Documented templates and local workflows you can run and adapt, with a support path for reproducible execution."),
+        ],
+    }
+    _cat = "gpu" if "gpu" in slug or "compute" in slug or "inference" in slug else (
+        "draft" if slug in {"sentinel-note", "ops-draft", "ledger-draft", "hr-draft"} else "default")
+    _faq_pairs = _FAQ.get(_cat, _FAQ["default"])
+    faq_schema_json = json.dumps({
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {"@type": "Question", "name": q,
+             "acceptedAnswer": {"@type": "Answer", "text": a}}
+            for q, a in _faq_pairs
+        ],
+    }, ensure_ascii=False).replace("</", "<\\/")
     platform_layer = {
         "sovereign-ops-score": ("01 · PROVE", "Establish a measurable baseline before you scale."),
         "ai-box-doctor": ("01 · PROVE", "Keep the box healthy after the audit."),
@@ -1545,6 +1677,7 @@ footer a{{color:var(--accent);text-decoration:none}}
 <div class="platform-layer"><b>{platform_layer[0]}</b><span>{platform_layer[1]}</span></div>
 <!-- SEO: JSON-LD Product -->
 <script type="application/ld+json">{product_schema_json}</script>
+<script type="application/ld+json">{faq_schema_json}</script>
 <h1>{name_html}</h1>
 <span class="badge">{status_html}</span>
 { f'<img class="img" src="{img}" alt="{name_html}">' if img else '' }
@@ -1573,7 +1706,14 @@ footer a{{color:var(--accent);text-decoration:none}}
     if has_free:
         cta_html += f'<a class="cta secondary" href="/p/{slug}/free" data-slug="{slug}">🎁 Start free →</a>'
     if product.get("status") == "ready":
-        if checkout:
+        if product.get("stripe_sku"):
+            # Sovereign checkout: POST slug to audit-api Session flow (webhook fulfills + receipts).
+            cta_html += (
+                f'<form method="post" action="/audit/checkout" class="cta-form">'
+                f'<input type="hidden" name="sku" value="{_html.escape(product["stripe_sku"], quote=True)}">'
+                f'<button type="submit" class="cta">⚡ Get It Now →</button></form>'
+            )
+        elif checkout:
             cta_html += f'<a class="cta" href="{_html.escape(checkout, quote=True)}" target="_blank" rel="noopener" data-slug="{slug}">⚡ Get Pro →</a>'
         elif product.get("checkout_url") and "contact" in str(product.get("checkout_url")).lower():
             cta_html += f'<a class="cta" href="/contact?product={slug}" data-slug="{slug}">📩 Contact for pricing →</a>'
@@ -1587,6 +1727,29 @@ footer a{{color:var(--accent);text-decoration:none}}
     else:
         cta_html += f'<a class="cta" href="/contact?product={slug}">📩 Discuss this offer →</a>'
     html += f'<div class="cta-row">{cta_html}</div>'
+    # Abandoned-checkout recovery (on-site, no email needed): mark intent on
+    # buy click; if the visitor returns without a completed purchase, surface a
+    # reminder banner so the sale is not lost. Cleared on the success page.
+    html += (
+        '<script>'
+        '(function(){'
+        'var SLUG="' + _html.escape(slug, quote=True) + '";'
+        'var KEY="pending_"+SLUG;'
+        'try{'
+        '  var form=document.querySelector("form.cta-form");'
+        '  if(form){form.addEventListener("submit",function(){localStorage.setItem(KEY,"1");});}'
+        '  var a=document.querySelector("a.cta[data-slug=\\""+SLUG+"\\"]");'
+        '  if(a){a.addEventListener("click",function(){localStorage.setItem(KEY,"1");});}'
+        '  if(localStorage.getItem(KEY)==="1" && !sessionStorage.getItem("fulfilled_"+SLUG)){'
+        '    var b=document.createElement("div");'
+        '    b.style="position:fixed;bottom:0;left:0;right:0;background:#0f766e;color:#fff;padding:.8rem 1rem;text-align:center;z-index:70;font:600 14px system-ui";'
+        '    b.innerHTML="Still thinking it over? Your "+SLUG.replace(/-/g," ")+" is one click away. <a href=\\"#buy\\" style=\\"color:#fff;text-decoration:underline\\">Finish checkout</a>";'
+        '    document.body.appendChild(b);'
+        '  }'
+        '}catch(e){}'
+        '})();'
+        '</script>'
+    )
     # Managed install add-on (flat $149/mo, cancel anytime, no new infra).
     if slug in ("sentinel-note", "hardonia-enterpriser"):
         html += (
@@ -1966,12 +2129,25 @@ async def pricing_page():
 <style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:900px;margin:6vh auto;padding:0 20px;line-height:1.6}}
 h1{{font-size:2rem}} table{{width:100%;border-collapse:collapse;margin-top:1rem}} th,td{{text-align:left;padding:.7rem;border-bottom:1px solid #d8d3ca}}
 .cta{{background:#0ea5e9;color:#fff;padding:.5rem .9rem;border-radius:8px;text-decoration:none;font-weight:700}}
+.lane-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin:1.2rem 0}}
+.lane{{border:1px solid #d8d3ca;border-radius:12px;padding:1rem;background:#fff}}
+.lane h3{{margin:.2rem 0}}.lane p{{font-size:.9rem;color:#52606d;min-height:3.5rem}}
+.lane .cta{{display:inline-block;margin-top:.4rem}}
 a{{color:#0f766e}} @media(max-width:600px){{table{{font-size:.85rem}} th,td{{padding:.4rem .5rem}}}}
 </style></head><body>
 <nav><a href='/'>← The Platform</a> · <a href='/pricing'>Pricing</a> · <a href='/contact'>Talk to us</a></nav>
 <main>
 <h1>💳 Products, bundles &amp; services</h1>
 <p class='muted'>Transparent pricing for ready-to-buy digital products and scoped early-access implementations. Stripe-secured checkout where available; custom scope goes through a human-reviewed discovery call. <a href='/contact'>Talk to us</a>.</p>
+<section class='lanes'>
+  <h2>Pick your lane</h2>
+  <div class='lane-grid'>
+    <div class='lane'><h3>🎨 Agent Skins</h3><p>Drop-in Hermes UI skins. $19 each. Make your operator look sovereign.</p><a class='cta' href='/p/agent-skin-neon-sovereign'>View skins</a></div>
+    <div class='lane'><h3>🧠 LoRAs</h3><p>SDXL LoRA configs + triggers for ComfyUI. $19. Consistent style, every render.</p><a class='cta' href='/p/lora-neon-line-art'>View LoRAs</a></div>
+    <div class='lane'><h3>📦 Prompt &amp; SOP Packs</h3><p>Copy-paste prompts, SOPs, checklists. $9–$19. Run/monitor/repair your lab.</p><a class='cta' href='/p/prompt-pack-agent-ops'>View packs</a></div>
+    <div class='lane'><h3>🚀 Starter Bundle</h3><p>3 skins + 1 LoRA + 3 prompt packs. <b>$39</b> (save 40%+). The whole stack.</p><a class='cta' href='/p/sovereign-starter-bundle'>Get the bundle</a></div>
+  </div>
+</section>
 <table><thead><tr><th>Product</th><th>Price</th><th></th></tr></thead><tbody>
 {table}
 </tbody></table>
@@ -2003,6 +2179,69 @@ a{{color:#0f766e}} @media(max-width:600px){{table{{font-size:.85rem}} th,td{{pad
     return html
 
 
+@app.get("/factory", response_class=HTMLResponse)
+async def factory_page():
+    html = """<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>AI Lab Product Factory — $497/mo | AI Automated Systems</title>
+<meta name='description' content='We turn your local AI lab into a shipping product line. One command launches a new sellable digital product — page, Stripe price, fulfillment, and download — every week.'>
+<link rel='canonical' href='https://aiautomatedsystems.ca/factory'>
+<meta property='og:type' content='website'><meta property='og:title' content='AI Lab Product Factory'>
+<meta property='og:description' content='Turn your AI lab into a product line. $497/mo.'>
+<style>body{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:920px;margin:5vh auto;padding:0 20px;line-height:1.6}
+h1{font-size:2.1rem} h2{margin-top:1.8rem;color:#0f766e}
+.tier{border:1px solid #d8d3ca;border-radius:14px;padding:1.3rem 1.5rem;margin:1rem 0;background:#fffdf8}
+.tier.best{border-color:#0f766e;box-shadow:0 10px 30px rgba(15,118,110,.12)}
+.price{font-size:1.8rem;font-weight:800;color:#b45309}
+.cta{display:inline-block;background:#0f766e;color:#fff;padding:.8rem 1.6rem;border-radius:10px;text-decoration:none;font-weight:700;margin-top:1rem}
+ul{padding-left:1.2rem} li{margin:.3rem 0}
+.nav a{color:#0f766e;text-decoration:none}</style></head>
+<body>
+<nav class='nav'><a href='/'>← The Platform</a> · <a href='/pricing'>Pricing</a> · <a href='/contact'>Talk to us</a></nav>
+<main>
+<h1>🏭 AI Lab Product Factory</h1>
+<p class='muted'>Turn your local AI lab into a shipping product line. One command launches a new sellable digital product — landing page, Stripe price, signed fulfillment, and download — every week, without you touching a CMS.</p>
+
+<div class='tier best'>
+  <h2>Product Factory — $497/mo</h2>
+  <p class='price'>$497 / month · cancel anytime</p>
+  <ul>
+    <li>1 new production-ready digital product launched every week (prompt pack, SOP, checklist, skin, or LoRA)</li>
+    <li>Each product: real landing page + Stripe price + signed download + JSON-LD + SEO</li>
+    <li>Monthly bundle of everything shipped, priced for resale</li>
+    <li>Quarterly LoRA training run on your EPYC GPU (real .safetensors)</li>
+    <li>Full source of the product-factory automation handed to you</li>
+    <li>Sovereign: runs on your infra, no SaaS, no phone-home</li>
+  </ul>
+  <a class='cta' href='/contact?product=factory'>Start a factory →</a>
+</div>
+
+<div class='tier'>
+  <h2>How it works</h2>
+  <ol>
+    <li><b>Scaffold</b> — <code>product-factory.py</code> writes the product page, Stripe price, and download bundle in one command.</li>
+    <li><b>List</b> — the offer is registered in your catalog + commerce tables automatically.</li>
+    <li><b>Fulfill</b> — the webhook signs a download link the moment payment clears (no email needed).</li>
+    <li><b>Mirror</b> — Gumroad listing is generated with full copy + file, ready the moment payout is connected.</li>
+    <li><b>Compound</b> — every week the catalog grows; the overnight generator drafts the next batch.</li>
+  </ol>
+</div>
+
+<div class='tier'>
+  <h2>What you own</h2>
+  <ul>
+    <li>The automation (product-factory.py, overnight generator, key-rotation script)</li>
+    <li>Every product page, price, and bundle</li>
+    <li>The trained LoRA weights</li>
+    <li>A repeatable engine — not a one-off deliverable</li>
+  </ul>
+</div>
+
+<p><a class='cta' href='/contact?product=factory'>Book a factory slot →</a> · <a href='/pricing'>See all products</a></p>
+</main>
+<footer><p><a href='/'>← Back to home</a></p></footer>
+</body></html>"""
+    return html
 @app.get("/metrics/funnel", response_class=PlainTextResponse)
 async def funnel_metrics(_: None = Depends(require_operator)):
     """Conversion funnel from local telemetry plus verified commerce events."""
@@ -2180,20 +2419,6 @@ async def blog_post(slug: str):
         elif s:
             out.append(f"<p>{_h.escape(s)}</p>")
     body = "\n".join(out)
-    product_footer = """
-<hr style="margin:2.5rem 0;border-color:#222">
-<h3>Local-first AI drafting — built for regulated work</h3>
-<ul>
-<li><a href="/p/sentinel-note">Sentinel Note</a> — clinical SOAP/referral drafting ($297)</li>
-<li><a href="/p/ops-draft">OpsDraft</a> — legal/municipal drafting ($197)</li>
-<li><a href="/p/ledger-draft">LedgerDraft</a> — finance drafting ($197)</li>
-<li><a href="/p/hr-draft">HRDraft</a> — HR/policy drafting ($197)</li>
-<li><a href="/p/hardonia-enterpriser">Hardonia Enterpriser</a> — all 4 suites ($497)</li>
-<li><a href="/p/sovereign-supercharger">Sovereign Supercharger</a> — everything + IP pack + audit ($1497)</li>
-<li><a href="/p/sovereign-ai-audit">Sovereign AI Audit</a> — $297 expert review (credited)</li>
-</ul>
-<p><a href="/lead">🏠 Run the free Sovereign AI Readiness Score →</a></p>
-"""
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'><title>{title_html} — AI Automated Systems</title>
 <meta name='description' content='{description_html}'><link rel='canonical' href='{canonical}'>
@@ -2391,7 +2616,7 @@ async def get_flags(x_api_key: str | None = Header(None)):
     exp = flag_engine._active_experiment(flag_engine.DEFAULT_FLAG_PATH)  # noqa: SLF001 — read-only, engine-local
     return {
         "flags": flags,
-        "schema": {k: v for k, v in flag_engine.FLAG_SCHEMA.items()},
+        "schema": dict(flag_engine.FLAG_SCHEMA),
         "active_experiment": exp,
         "flag_file": str(flag_engine.DEFAULT_FLAG_PATH),
     }
@@ -2416,7 +2641,7 @@ async def set_flag(payload: FlagUpdate, x_api_key: str | None = Header(None)):
         try:
             fval = float(payload.value)
         except (TypeError, ValueError):
-            raise HTTPException(status_code=422, detail=f"{payload.name} requires a float")
+            raise HTTPException(status_code=422, detail=f"{payload.name} requires a float") from None
         if not 0.0 <= fval <= 1.0:
             raise HTTPException(status_code=422, detail="sampling must be 0..1")
         payload.value = fval
@@ -2461,7 +2686,7 @@ async def control_experiment(payload: ExperimentControl, x_api_key: str | None =
     try:
         exp = flag_engine.start_experiment(payload.flag, payload.force_winner)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     _record_event(
         f"flag_experiment:start:{payload.flag}"
         + (f":winner={payload.force_winner}" if payload.force_winner else ""),
@@ -2612,13 +2837,18 @@ async def buy_redirect(slug: str, request: Request):
     checkout = _safe_external_url(prod.get("checkout_url")) or _safe_external_url(prod.get("gumroad_url"))
     if not checkout:
         return RedirectResponse(url=f"/p/{slug}#contact", status_code=302)
+    # Channel attribution: ?src=<channel> -> recorded on the click and, when the
+    # product uses the session flow, forwarded to checkout as client_reference_id.
+    src = (request.query_params.get("src") or "").strip()[:64]
     _record_event("buy_click", page=request.url.path, product_slug=slug,
                   checkout_url=checkout, session_id=_session_id(request),
-                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request))
+                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request),
+                  src=src)
     _record_event("checkout_redirect", page=request.url.path, product_slug=slug,
                   checkout_url=checkout, session_id=_session_id(request),
-                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request))
-    return RedirectResponse(url=checkout, status_code=302)
+                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request),
+                  src=src)
+    return RedirectResponse(url=checkout + (f"?src={src}" if src else ""), status_code=302)
 
 
 # ── Operational status (trust page) ────────────────────────────────────────────

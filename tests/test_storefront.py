@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -448,7 +447,7 @@ def test_product_price_and_primary_cta_are_consistent_across_buyer_surfaces(monk
         "gumroad_url": "https://shop.gumroad.com/l/alternate", "readiness_score": 100,
         "image_path": "", "landing_path": "",
     }
-    monkeypatch.setattr(m.store, "list_products", lambda db_path: [dict(product)])
+    monkeypatch.setattr(m.store, "list_products", lambda db_path, sort="readiness": [dict(product)])
     monkeypatch.setattr(m.store, "get_product", lambda slug, db_path=None: dict(product) if slug == product["slug"] else None)
     monkeypatch.setattr(m, "_record_event", lambda *args, **kwargs: None)
 

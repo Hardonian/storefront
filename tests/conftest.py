@@ -18,15 +18,28 @@ os.environ["LEGAL_DIR"] = str(_TEST_LEGAL)
 # Hermetic operator API key for authed surfaces (/api/flags, /api/analytics, ...).
 # Env vars take precedence over the repo .env in pydantic-settings.
 os.environ["API_KEY"] = "test-operator-key-not-for-prod"
-# Load INDEXNOW_KEY from the gitignored .env (production loads it via systemd
-# EnvironmentFile). Set before any test module imports app.main so the module
-# constant is correct regardless of test collection order.
+# Load INDEXNOW_KEY from the gitignored .env if present, otherwise fall back to
+# a deterministic hermetic CI key. Also materialize the static key file the app
+# serves, so the test never depends on the operator's real .env or static dir.
+# Set before any test module imports app.main so the module constant is correct.
 _ENV = Path(__file__).resolve().parent.parent / ".env"
+_indexnow_env_key = ""
 if _ENV.exists():
     for _line in _ENV.read_text().splitlines():
         if _line.startswith("INDEXNOW_KEY="):
-            os.environ.setdefault("INDEXNOW_KEY", _line.split("=", 1)[1].strip())
+            _indexnow_env_key = _line.split("=", 1)[1].strip()
             break
+if _indexnow_env_key:
+    os.environ["INDEXNOW_KEY"] = _indexnow_env_key
+else:
+    # Hermetic CI key: no operator .env needed; materialize the static file the
+    # app serves so the IndexNow test is deterministic and portable.
+    os.environ["INDEXNOW_KEY"] = "test-indexnow-key-not-for-prod"
+    _STATIC = Path(__file__).resolve().parent.parent / "static"
+    _STATIC.mkdir(parents=True, exist_ok=True)
+    (_STATIC / f"{os.environ['INDEXNOW_KEY']}.txt").write_text(
+        os.environ["INDEXNOW_KEY"], encoding="utf-8"
+    )
 
 with sqlite3.connect(_TEST_DB) as _conn:
     _conn.executescript(
@@ -36,7 +49,8 @@ with sqlite3.connect(_TEST_DB) as _conn:
             pain TEXT, offer TEXT, price TEXT, checkout_url TEXT,
             gumroad_url TEXT, image_path TEXT, landing_path TEXT,
             deliverable_path TEXT, readiness_score INTEGER, dashboard_url TEXT,
-            dashboard_features TEXT, created_at TEXT, updated_at TEXT
+            dashboard_features TEXT, created_at TEXT, updated_at TEXT,
+            stripe_sku TEXT
         );
         CREATE TABLE events (
             id INTEGER PRIMARY KEY AUTOINCREMENT, product_slug TEXT,
@@ -57,11 +71,11 @@ with sqlite3.connect(_TEST_DB) as _conn:
         ('comfyui-workflow-pack', 'ComfyUI Workflow Pack', 'ready', 'Creators',
          'Workflow drift', 'Reusable local image workflows', 'Pro $49',
          'https://buy.stripe.com/ci-test', '', '', '', '', 100, '', '',
-         datetime('now'), datetime('now')),
+         datetime('now'), datetime('now'), ''),
         ('ci-product', 'CI Product', 'ready', 'Operators', 'Drift',
          'A deterministic test catalog item', 'Pro $49',
          'https://buy.stripe.com/ci-test', '', '', '', '', 100, '', '',
-         datetime('now'), datetime('now'));
+         datetime('now'), datetime('now'), '');
         """
     )
 

@@ -72,7 +72,8 @@ def _init_analytics(db_path: str) -> None:
 
 def _record_event(event: str, page: str | None, product_slug: str | None,
                   checkout_url: str | None, session_id: str | None,
-                  referrer: str | None, traffic_class: str = "unclassified") -> None:
+                  referrer: str | None, traffic_class: str = "unclassified",
+                  src: str | None = None) -> None:
     import json as _json
     payload = _json.dumps({
         "page": page,
@@ -80,6 +81,7 @@ def _record_event(event: str, page: str | None, product_slug: str | None,
         "session_id": session_id,
         "referrer": referrer,
         "traffic_class": traffic_class,
+        "src": src,
     }, separators=(",", ":"))
     conn = _analytics_connection(settings.db_path)
     try:
@@ -1021,7 +1023,8 @@ def _safe_external_url(value: object) -> str:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     base, site_name = public_brand(request)
-    products = store.list_products(settings.db_path)
+    sort_by = request.query_params.get("sort", "readiness")
+    products = store.list_products(settings.db_path, sort=sort_by)
     # Rewrite absolute image_path -> served /product-assets/ URL so covers load.
     for p in products:
         ip = p.get("image_path") or ""
@@ -1035,7 +1038,7 @@ async def index(request: Request):
     saleable_products = [p for p in products if p.get("status") in {"ready", "early-access"}]
     featured_products = [p for p in saleable_products if p.get("slug") in {
         "sovereign-mission-intelligence", "sovereign-ops-score", "ai-box-doctor", "private-inference-access",
-        "hardonia-compute-api-access", "n8n-automation-kit", "comfyui-workflow-pack",
+        "ai-portrait-studio", "hardonia-compute-api-access", "n8n-automation-kit", "comfyui-workflow-pack",
         "autonomous-revenue-loop",
     }]
     featured_slugs = {p.get("slug") for p in featured_products}
@@ -2834,13 +2837,18 @@ async def buy_redirect(slug: str, request: Request):
     checkout = _safe_external_url(prod.get("checkout_url")) or _safe_external_url(prod.get("gumroad_url"))
     if not checkout:
         return RedirectResponse(url=f"/p/{slug}#contact", status_code=302)
+    # Channel attribution: ?src=<channel> -> recorded on the click and, when the
+    # product uses the session flow, forwarded to checkout as client_reference_id.
+    src = (request.query_params.get("src") or "").strip()[:64]
     _record_event("buy_click", page=request.url.path, product_slug=slug,
                   checkout_url=checkout, session_id=_session_id(request),
-                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request))
+                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request),
+                  src=src)
     _record_event("checkout_redirect", page=request.url.path, product_slug=slug,
                   checkout_url=checkout, session_id=_session_id(request),
-                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request))
-    return RedirectResponse(url=checkout, status_code=302)
+                  referrer=request.headers.get("referer"), traffic_class=_traffic_class(request),
+                  src=src)
+    return RedirectResponse(url=checkout + (f"?src={src}" if src else ""), status_code=302)
 
 
 # ── Operational status (trust page) ────────────────────────────────────────────

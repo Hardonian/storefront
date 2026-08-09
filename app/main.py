@@ -2758,6 +2758,10 @@ async def list_leads(x_api_key: str | None = Header(None)):
 from app.downloads import build_download_url, resolve_download
 from app.metrics import PrometheusMiddleware
 
+# NOTE: agent_instrumentation was intentionally NOT imported here — the module
+# is not installed in the storefront venv; importing it crashed checkout-api
+# with the same ModuleNotFoundError (see import-gate hardening).
+
 # NOTE: download URLs are NOT generated via an open API. They are issued only
 # (a) by the checkout webhook after a verified purchase (delivery token), or
 # (b) by the free-trial capture route after a lead is recorded. This prevents

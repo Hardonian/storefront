@@ -148,6 +148,7 @@ def test_public_catalog_never_leaks_host_paths():
     assert r.status_code == 200
     body = r.json()
     assert body["count"] == len(body["products"])
+    assert {product["status"] for product in body["products"]} <= {"ready", "early-access"}
     assert "/home/" not in r.text
     assert all("landing_path" not in p and "image_path" not in p for p in body["products"])
 

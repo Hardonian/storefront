@@ -2074,7 +2074,13 @@ async def legal_doc(doc: str):
 
 @app.get("/api/products")
 async def api_products():
-    products = [_public_product(p) for p in store.list_products(settings.db_path)]
+    """Return only products intentionally released to public catalog consumers."""
+    public_statuses = {"ready", "early-access"}
+    products = [
+        _public_product(product)
+        for product in store.list_products(settings.db_path)
+        if product.get("status") in public_statuses
+    ]
     return {"products": products, "count": len(products)}
 
 

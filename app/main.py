@@ -2204,10 +2204,23 @@ async def api_contact(request: Request, payload: dict = Body(default={})):
 async def pricing_page():
     import html as _html
     products = store.list_products(settings.db_path)
+    saleable = [p for p in products if p.get("status") in {"ready", "early-access"}]
+    # Lanes are data-driven from the catalog so the page can never market a
+    # hidden/draft product. Only saleable products with a checkout surface appear.
+    def _lane(slugs: set[str], heading: str, blurb: str):
+        lane_hits = [p for p in saleable if p.get("slug") in slugs]
+        if not lane_hits:
+            return ""
+        anchor = _html.escape(str(lane_hits[0].get("slug") or ""), quote=True)
+        return f"<div class='lane'><h3>{heading}</h3><p>{blurb}</p><a class='cta' href='/p/{anchor}'>View</a></div>"
+    lanes = "".join([
+        _lane({"agent-skin-neon-sovereign"}, "🎨 Agent Skins", "Drop-in Hermes UI skins. $19 each. Make your operator look sovereign."),
+        _lane({"lora-neon-line-art"}, "🧠 LoRAs", "SDXL LoRA configs + triggers for ComfyUI. $19. Consistent style, every render."),
+        _lane({"prompt-pack-agent-ops"}, "📦 Prompt &amp; SOP Packs", "Copy-paste prompts, SOPs, checklists. $9–$19. Run/monitor/repair your lab."),
+        _lane({"sovereign-starter-bundle"}, "🚀 Starter Bundle", "3 skins + 1 LoRA + 3 prompt packs. <b>$39</b> (save 40%+). The whole stack."),
+    ])
     rows = []
-    for p in products:
-        if p.get("status") not in {"ready", "early-access"}:
-            continue
+    for p in saleable:
         slug = _html.escape(str(p.get("slug") or ""), quote=True)
         name = _html.escape(str(p.get("name") or ""))
         price = _html.escape(str(p.get("price") or ""))
@@ -2224,33 +2237,40 @@ async def pricing_page():
 <meta property='og:type' content='website'><meta property='og:title' content='Pricing — AI Automated Systems'>
 <meta property='og:description' content='Transparent private-AI products and GPU compute pricing.'>
 <meta property='og:url' content='https://aiautomatedsystems.ca/pricing'>
-<style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:900px;margin:6vh auto;padding:0 20px;line-height:1.6}}
-h1{{font-size:2rem}} table{{width:100%;border-collapse:collapse;margin-top:1rem}} th,td{{text-align:left;padding:.7rem;border-bottom:1px solid #d8d3ca}}
-.cta{{background:#0ea5e9;color:#fff;padding:.5rem .9rem;border-radius:8px;text-decoration:none;font-weight:700}}
+<style>body{{font-family:system-ui;background:#f5f1e8;color:#1f2933;max-width:960px;margin:0 auto;padding:1.5rem;line-height:1.6}}
+nav.top{{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.6rem 0 1.2rem;border-bottom:1px solid #d8d3ca;margin-bottom:2rem}}
+nav.top .brand{{font-weight:800;color:#1f2933;text-decoration:none;letter-spacing:.02em}}
+nav.top .links a{{color:#66717d;text-decoration:none;margin-left:1rem;font-size:.9rem;font-weight:600}}
+nav.top .links a:hover{{color:#0f766e}}
+nav.top .links a.cta{{background:#0f766e;color:#fff;padding:.45rem .9rem;border-radius:8px}}
+nav.top .links a.cta:hover{{background:#115e59;color:#fff}}
+h1{{font-size:2rem;letter-spacing:-.03em}} .muted{{color:#66717d}}
+table{{width:100%;border-collapse:collapse;margin-top:1rem}} th,td{{text-align:left;padding:.7rem;border-bottom:1px solid #d8d3ca}}
+.cta{{background:#0f766e;color:#fff;padding:.5rem .9rem;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block}}
+a{{color:#0f766e}}
 .lane-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin:1.2rem 0}}
-.lane{{border:1px solid #d8d3ca;border-radius:12px;padding:1rem;background:#fff}}
+.lane{{border:1px solid #d8d3ca;border-radius:12px;padding:1rem;background:#fffdf8}}
 .lane h3{{margin:.2rem 0}}.lane p{{font-size:.9rem;color:#52606d;min-height:3.5rem}}
-.lane .cta{{display:inline-block;margin-top:.4rem}}
-a{{color:#0f766e}} @media(max-width:600px){{table{{font-size:.85rem}} th,td{{padding:.4rem .5rem}}}}
+.lane .cta{{margin-top:.4rem}}
+footer{{margin-top:2.5rem;padding-top:1.2rem;border-top:1px solid #d8d3ca;color:#66717d;font-size:.85rem;text-align:center}}
+footer a{{color:#0f766e;text-decoration:none}}
+@media(max-width:600px){{table{{font-size:.85rem}} th,td{{padding:.4rem .5rem}} nav.top{{flex-direction:column;align-items:flex-start}} nav.top .links a{{margin-left:0;margin-right:1rem}}}}
 </style></head><body>
-<nav><a href='/'>← The Platform</a> · <a href='/pricing'>Pricing</a> · <a href='/contact'>Talk to us</a></nav>
+<nav class='top'><a class='brand' href='/'>AI AUTOMATED SYSTEMS</a><div class='links'><a href='/#services'>Services</a><a href='/#catalog'>Catalog</a><a href='/proof-score'>Proof</a><a href='/free-audit-guide'>Free Audit</a><a class='cta' href='/contact'>Talk to an operator →</a></div></nav>
 <main>
 <h1>💳 Products, bundles &amp; services</h1>
 <p class='muted'>Transparent pricing for ready-to-buy digital products and scoped early-access implementations. Stripe-secured checkout where available; custom scope goes through a human-reviewed discovery call. <a href='/contact'>Talk to us</a>.</p>
 <section class='lanes'>
   <h2>Pick your lane</h2>
   <div class='lane-grid'>
-    <div class='lane'><h3>🎨 Agent Skins</h3><p>Drop-in Hermes UI skins. $19 each. Make your operator look sovereign.</p><a class='cta' href='/p/agent-skin-neon-sovereign'>View skins</a></div>
-    <div class='lane'><h3>🧠 LoRAs</h3><p>SDXL LoRA configs + triggers for ComfyUI. $19. Consistent style, every render.</p><a class='cta' href='/p/lora-neon-line-art'>View LoRAs</a></div>
-    <div class='lane'><h3>📦 Prompt &amp; SOP Packs</h3><p>Copy-paste prompts, SOPs, checklists. $9–$19. Run/monitor/repair your lab.</p><a class='cta' href='/p/prompt-pack-agent-ops'>View packs</a></div>
-    <div class='lane'><h3>🚀 Starter Bundle</h3><p>3 skins + 1 LoRA + 3 prompt packs. <b>$39</b> (save 40%+). The whole stack.</p><a class='cta' href='/p/sovereign-starter-bundle'>Get the bundle</a></div>
+{lanes}
   </div>
 </section>
 <table><thead><tr><th>Product</th><th>Price</th><th></th></tr></thead><tbody>
 {table}
 </tbody></table>
 </main>
-<footer><p><a href='/'>← Back to home</a></p></footer>
+<footer><p>AI Automated Systems · <a href='/legal/terms-of-service'>Terms</a> · <a href='/legal/privacy-policy'>Privacy</a> · <a href='/legal/refund-policy'>Refunds</a> · <a href='/status'>Live Status</a></p></footer>
 <script>
 (function(){{
   function send(ev, extra){{
@@ -2265,7 +2285,7 @@ a{{color:#0f766e}} @media(max-width:600px){{table{{font-size:.85rem}} th,td{{pad
   }}
   send('page_view');
   document.addEventListener('click', function(e){{
-    var a = e.target.closest && e.target.closest('a.cta');
+    var a = e.target.closest &amp;&amp; e.target.closest('a.cta');
     if(!a) return;
     var slug = a.getAttribute('data-slug') || '';
     var isBuy = (a.getAttribute('href')||'').indexOf('http') === 0;

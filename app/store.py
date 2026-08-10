@@ -46,15 +46,26 @@ def init_db(db_path: Path | str = DEFAULT_DB_PATH) -> None:
 
 # ── Products ──────────────────────────────────────────────────────────────────
 
-def list_products(db_path: Path | str = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
+def list_products(db_path: Path | str = DEFAULT_DB_PATH, sort: str = "readiness") -> list[dict[str, Any]]:
+    """List products with optional sort: 'readiness' (default) or 'bestsellers' (sales_count DESC)."""
+    order = "sales_count DESC, name ASC" if sort == "bestsellers" else "readiness_score DESC, name ASC"
+    cols = "slug, name, status, audience, pain, offer, price, checkout_url, gumroad_url, image_path, landing_path, readiness_score, created_at, updated_at, dashboard_url, dashboard_features, stripe_sku"
     with get_conn(db_path) as conn:
-        rows = conn.execute(
-            "SELECT slug, name, status, audience, pain, offer, price, "
-            "checkout_url, gumroad_url, image_path, landing_path, "
-            "readiness_score, created_at, updated_at, dashboard_url, "
-            "dashboard_features "
-            "FROM products ORDER BY readiness_score DESC, name ASC"
-        ).fetchall()
+        # sales_count may not exist in older schemas (test fixtures); add if missing.
+        try:
+            conn.execute("ALTER TABLE products ADD COLUMN sales_count INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+        try:
+            rows = conn.execute(
+                f"SELECT {cols}, sales_count FROM products ORDER BY {order}"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # Fallback: no sales_count column
+            rows = conn.execute(
+                f"SELECT {cols} FROM products ORDER BY {order}"
+            ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -65,7 +76,7 @@ def get_product(slug: str, db_path: Path | str = DEFAULT_DB_PATH) -> dict[str, A
             "checkout_url, gumroad_url, image_path, landing_path, "
             "deliverable_path, readiness_score, "
             "dashboard_url, dashboard_features, "
-            "created_at, updated_at FROM products WHERE slug = ?",
+            "created_at, updated_at, stripe_sku FROM products WHERE slug = ?",
             (slug,),
         ).fetchone()
     return dict(row) if row else None

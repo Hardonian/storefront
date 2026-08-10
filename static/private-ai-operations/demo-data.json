@@ -1,0 +1,29 @@
+{
+  "schema_version": "ops-dashboard-demo-v1",
+  "data_classification": "synthetic-demo-only",
+  "deterministic": true,
+  "fixture_id": "demo-2026-01-15T12:00:00Z-v1",
+  "generated_at": "2026-01-15T12:00:00Z",
+  "fixture_sha256": "bee1da80378d2296c4527dc718214e56fb04d2da85f7758a5f28252d27e51dd5",
+  "summary": {
+    "services_total": 4,
+    "services_ready": 3,
+    "open_findings": 2,
+    "evaluation_score": 82
+  },
+  "services": [
+    {"name": "Inference gateway", "status": "ready", "latency_ms": 38, "checked_at": "2026-01-15T12:00:00Z"},
+    {"name": "Model runtime", "status": "ready", "latency_ms": 64, "checked_at": "2026-01-15T12:00:00Z"},
+    {"name": "Trend store", "status": "degraded", "latency_ms": 143, "checked_at": "2026-01-15T12:00:00Z"},
+    {"name": "Audit export", "status": "ready", "latency_ms": 21, "checked_at": "2026-01-15T12:00:00Z"}
+  ],
+  "findings": [
+    {"severity": "medium", "title": "Restore drill is due", "evidence": "Last synthetic drill timestamp exceeds the 30-day evaluation threshold."},
+    {"severity": "low", "title": "Trend-store latency above evaluation target", "evidence": "Synthetic value 143 ms; demonstration target is 120 ms."}
+  ],
+  "limitations": [
+    "Values are fixed examples, not measurements.",
+    "Status does not represent a deployed environment.",
+    "Evaluation score is illustrative and is not a certification."
+  ]
+}

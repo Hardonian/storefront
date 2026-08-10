@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -448,7 +447,7 @@ def test_product_price_and_primary_cta_are_consistent_across_buyer_surfaces(monk
         "gumroad_url": "https://shop.gumroad.com/l/alternate", "readiness_score": 100,
         "image_path": "", "landing_path": "",
     }
-    monkeypatch.setattr(m.store, "list_products", lambda db_path: [dict(product)])
+    monkeypatch.setattr(m.store, "list_products", lambda db_path, sort="readiness": [dict(product)])
     monkeypatch.setattr(m.store, "get_product", lambda slug, db_path=None: dict(product) if slug == product["slug"] else None)
     monkeypatch.setattr(m, "_record_event", lambda *args, **kwargs: None)
 
@@ -472,3 +471,27 @@ def test_buyer_portal_has_status_and_recovery_path():
     assert "/fulfillment.js" in response.text
     assert "Refund or support" in response.text
     assert "api_key" not in response.text
+
+
+def test_status_uses_a_short_lived_snapshot_without_shelling_per_request(monkeypatch):
+    import app.main as m
+
+    calls = []
+    snapshot = {
+        "status": "operational",
+        "generated_at": "2026-08-09 23:40:00 UTC",
+        "all_green": True,
+        "failed_units": 0,
+        "guards": {"runtime_venv": "OK", "secret_leak": "OK", "hermes_runtime": "OK"},
+        "stack": "ALL GREEN\nstorefront OK",
+    }
+
+    monkeypatch.setattr(m, "_STATUS_CACHE", (0.0, {}))
+    monkeypatch.setattr(m, "_collect_stack_status", lambda: calls.append(True) or snapshot)
+
+    first = client.get("/status.json")
+    second = client.get("/status.json")
+
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json() == snapshot
+    assert len(calls) == 1

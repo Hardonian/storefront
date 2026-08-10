@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Evaluate a private AI operations dashboard with explicitly synthetic demo data.">
+  <meta name="robots" content="noindex,follow">
+  <title>Private AI Operations Platform — Evaluation Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <header class="site-header">
+    <div>
+      <p class="eyebrow">Private AI Operations Platform</p>
+      <h1>Operator dashboard</h1>
+    </div>
+    <div id="mode-badge" class="mode-badge" aria-label="Data source: synthetic demo fixture">
+      <span aria-hidden="true">◆</span> Synthetic demo data
+    </div>
+  </header>
+  <nav aria-label="Primary">
+    <a href="#overview">Overview</a>
+    <a href="#services">Services</a>
+    <a href="#findings">Findings</a>
+    <a href="#evaluation">Evaluate</a>
+  </nav>
+
+  <main id="main-content" tabindex="-1">
+    <section class="notice" aria-labelledby="demo-title">
+      <div>
+        <h2 id="demo-title">Demonstration—not an environment report</h2>
+        <p>Every displayed value comes from a fixed, synthetic fixture. It does not describe production health, security, availability, or performance.</p>
+      </div>
+      <button type="button" id="restart-tour" aria-controls="onboarding">Start guided evaluation</button>
+      <form id="source-form" class="source-form" aria-label="Select dashboard data source">
+        <label for="tenant-id">Tenant</label>
+        <input id="tenant-id" name="tenant" value="local" maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,127}">
+        <label for="api-key">API key (kept only for this browser tab)</label>
+        <input id="api-key" name="api-key" type="password" autocomplete="off" minlength="24">
+        <button type="submit">Load live local data</button>
+        <button type="button" id="load-demo">Load synthetic demo</button>
+      </form>
+    </section>
+
+    <div id="status-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+    <section id="state-region" aria-label="Dashboard data state">
+      <div class="state-card" data-state="loading" id="loading-state" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        <div><h2>Loading evaluation data…</h2><p>Reading the selected source. No health conclusion is available yet.</p></div>
+      </div>
+      <div class="state-card" data-state="empty" id="empty-state" hidden>
+        <div><h2>No observations yet</h2><p>The source responded successfully but contains no services or findings. Connect an observed environment or continue with the synthetic fixture.</p></div>
+        <button type="button" class="retry">Load synthetic demo</button>
+      </div>
+      <div class="state-card state-error" data-state="unavailable" id="unavailable-state" role="alert" hidden>
+        <div><h2>Data unavailable</h2><p id="unavailable-detail">The source could not be reached. Existing values have not been presented as current.</p></div>
+        <button type="button" class="retry">Retry with synthetic demo</button>
+      </div>
+    </section>
+
+    <div id="dashboard" hidden>
+      <section id="overview" aria-labelledby="overview-title">
+        <div class="section-heading"><div><p class="eyebrow">Fixed evaluation snapshot</p><h2 id="overview-title">Overview</h2></div><p id="snapshot-time"></p></div>
+        <div class="metrics" id="metrics" aria-label="Synthetic summary metrics"></div>
+      </section>
+
+      <section id="services" aria-labelledby="services-title">
+        <div class="section-heading"><div><p class="eyebrow">Observed components</p><h2 id="services-title">Service checks</h2></div></div>
+        <div class="table-wrap" tabindex="0" aria-label="Scrollable service check table">
+          <table>
+            <caption>Synthetic component status and response time</caption>
+            <thead><tr><th scope="col">Component</th><th scope="col">Status</th><th scope="col">Latency</th><th scope="col">Checked</th></tr></thead>
+            <tbody id="services-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="findings" aria-labelledby="findings-title">
+        <div class="section-heading"><div><p class="eyebrow">Review queue</p><h2 id="findings-title">Open findings</h2></div></div>
+        <ul class="finding-list" id="finding-list"></ul>
+      </section>
+
+      <section id="evaluation" aria-labelledby="evaluation-title" class="evaluation-card">
+        <p class="eyebrow">First-run path</p>
+        <h2 id="evaluation-title">Decide with evidence, not a demo score</h2>
+        <ol>
+          <li>Confirm deployment boundaries and data owners.</li>
+          <li>Run the evaluation worksheet against a non-critical environment.</li>
+          <li>Exercise authentication, unavailable states, export, backup, and restore.</li>
+          <li>Record evidence and an explicit adopt, pilot, or reject decision.</li>
+        </ol>
+        <a class="button-link" href="/contact?product=private-ai-operations-platform">Request a scoped evaluation</a>
+      </section>
+    </div>
+
+    <aside id="onboarding" class="onboarding" aria-labelledby="onboarding-title" hidden>
+      <div class="progress" aria-hidden="true"><span id="tour-progress"></span></div>
+      <p class="eyebrow" id="tour-count">Step 1 of 4</p>
+      <h2 id="onboarding-title">Know what you are viewing</h2>
+      <p id="tour-copy">This dashboard starts with a deterministic synthetic fixture so evaluation is repeatable and cannot be mistaken for live evidence.</p>
+      <div class="onboarding-actions">
+        <button type="button" id="tour-skip">Skip tour</button>
+        <button type="button" id="tour-next">Next step</button>
+      </div>
+    </aside>
+
+    <noscript><section class="state-card state-error"><h2>Interactive data unavailable</h2><p>JavaScript is disabled. The page structure and evaluation guide remain available, but no dashboard values are shown as current.</p></section></noscript>
+  </main>
+
+  <footer>
+    <p>Evaluation build 0.1.0 · Synthetic data is always labeled.</p>
+    <nav aria-label="Documentation"><a href="/private-ai-operations">Overview</a><a href="/trust">Evidence boundary</a><a href="/status">Public status</a></nav>
+  </footer>
+</body>
+</html>

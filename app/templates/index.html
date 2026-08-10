@@ -133,7 +133,7 @@
   {"@context":"https://schema.org","@type":"ItemList","itemListElement":[{% for p in products %}{"@type":"ListItem","position":loop.index,"item":{"@type":"Product","name":"{{ p.name }}","url":"{{ site_base }}/p/{{ p.slug }}"}}{% if not loop.last %},{% endif %}{% endfor %}]}
   </script>
   <script type="application/ld+json">
-  {"@context":"https://***@type":"Organization","name":"{{ site_name }}","url":"{{ site_base }}/","logo":"{{ site_base }}/favicon.ico"}
+  {"@context":"https://schema.org","@type":"Organization","name":"{{ site_name }}","url":"{{ site_base }}/","logo":"{{ site_base }}/favicon.ico"}
   </script>
   <script type="application/ld+json">
   {"@context":"https://***@type":"WebSite","name":"{{ site_name }}","url":"{{ site_base }}/","potentialAction":{"@type":"SearchAction","target":"{{ site_base }}/p/index?q={search_term_string}","query-input":"required name=search_term_string"}}

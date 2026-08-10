@@ -5,6 +5,7 @@ Run:  ./run.sh  (or uvicorn app.main:app --host 0.0.0.0 --port 8020)
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import html as _html
 import json
@@ -408,12 +409,47 @@ PRODUCT_ASSETS = Path('/home/scott/hardonia.store/products')
 PROOF_PUBLIC = Path('/home/scott/ai-lab/reports/proof-score/latest.public.json')
 TRUTH_LATEST = Path('/home/scott/ai-lab/state/truth-latest.json')
 NEXT20_DIR = Path('/home/scott/ai-lab/reports/proof-score/next20')
+PRIVATE_AI_OPS_PUBLIC = Path(__file__).resolve().parent.parent / "static" / "private-ai-operations"
 if PRODUCT_ASSETS.exists():
     app.mount(
         '/product-assets',
         StaticFiles(directory=str(PRODUCT_ASSETS)),
         name='product-assets',
     )
+
+
+@app.api_route("/private-ai-operations", methods=["GET", "HEAD"], include_in_schema=False)
+async def private_ai_operations_page():
+    """Public, evidence-bounded evaluation page for the local-first operations platform."""
+    page = PRIVATE_AI_OPS_PUBLIC / "landing.html"
+    if not page.is_file():
+        raise HTTPException(status_code=404, detail="Private AI Operations page unavailable")
+    return FileResponse(str(page), media_type="text/html")
+
+
+@app.api_route("/private-ai-operations-demo/", methods=["GET", "HEAD"], include_in_schema=False)
+async def private_ai_operations_demo():
+    """Public synthetic-only dashboard; never proxy private runtime observations."""
+    page = PRIVATE_AI_OPS_PUBLIC / "index.html"
+    if not page.is_file():
+        raise HTTPException(status_code=404, detail="Private AI Operations demo unavailable")
+    return FileResponse(str(page), media_type="text/html")
+
+
+@app.api_route("/private-ai-operations-demo/{asset}", methods=["GET", "HEAD"], include_in_schema=False)
+async def private_ai_operations_demo_asset(asset: str):
+    allowed = {
+        "styles.css": "text/css",
+        "app.js": "application/javascript",
+        "demo-data.json": "application/json",
+    }
+    media_type = allowed.get(asset)
+    if media_type is None:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    path = PRIVATE_AI_OPS_PUBLIC / asset
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Asset unavailable")
+    return FileResponse(str(path), media_type=media_type)
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -517,6 +553,7 @@ async def platform_truth_api():
     return JSONResponse(payload, headers={"Cache-Control": "public, max-age=60"})
 
 
+@app.get("/trust", response_class=HTMLResponse)
 @app.get("/platform-truth", response_class=HTMLResponse)
 async def platform_truth_page():
     """Customer-safe explanation of how Hardonia separates capability from proof."""
@@ -532,40 +569,53 @@ async def platform_truth_page():
 <title>Platform Truth | AI Automated Systems</title><meta name='description' content='Evidence-first readiness summary for private AI operations.'>
 <style>body{{margin:0;background:#f5f1e8;color:#1f2933;font:16px system-ui;line-height:1.55}}main{{max-width:900px;margin:auto;padding:56px 22px}}.eyebrow{{color:#0f766e;letter-spacing:.12em;text-transform:uppercase;font-size:12px;font-weight:700}}h1{{font-size:clamp(38px,7vw,68px);line-height:1.02;margin:16px 0}}.lead{{font-size:20px;color:#52606d;max-width:720px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:32px 0}}.card{{padding:18px;border:1px solid #d8d3ca;border-radius:14px;background:#fffdf8;box-shadow:0 12px 30px rgba(31,41,51,.06)}}.card span,.card strong{{display:block}}.card span{{color:#66717d;font-size:13px}}.card strong{{font-size:23px;margin-top:6px}}.note{{border-left:4px solid #0f766e;padding:12px 16px;background:#fffdf8}}a{{color:#0f766e;font-weight:700}}</style></head><body><main>
 <div class='eyebrow'>Evidence-first operations</div><h1>Private AI you can explain.</h1><p class='lead'>Hardonia separates what the system observed from what the catalog offers and what provider records prove. This public summary contains no customer records, credentials, raw logs, or local filesystem paths.</p>
-<div class='grid'>{cards}</div><p class='note'>{esc(str(data['claims_policy']))}</p><p>Generated {esc(str(data.get('generated_at')))} · {esc(str(data.get('evidence_count')))} evidence items · schema {esc(str(data.get('schema_version')))}</p><p><a href='/'>Browse the catalog</a> · <a href='/proof-score'>See the proof score</a></p></main></body></html>"""
+<div class='grid'>{cards}</div><p class='note'>{esc(str(data['claims_policy']))}</p><p>No SOC 2 attestation or default uptime SLA is claimed. Technical readiness does not establish purchases, customer outcomes, savings, or endorsements.</p><p>Generated {esc(str(data.get('generated_at')))} · {esc(str(data.get('evidence_count')))} evidence items · schema {esc(str(data.get('schema_version')))}</p><p><a href='/'>Browse the catalog</a> · <a href='/proof-score'>See the proof score</a></p></main></body></html>"""
     return HTMLResponse(body, headers={"Cache-Control": "public, max-age=60"})
 
 
-@app.get("/status", response_class=HTMLResponse)
-@app.get("/status.json", response_class=JSONResponse)
-async def stack_status(format: str = "html"):
-    """Public AI-stack status page + JSON. Runs the live operator guards.
+_STATUS_CACHE_TTL_SECONDS = 30.0
+_STATUS_CACHE: tuple[float, dict] = (0.0, {})
+_STATUS_CACHE_LOCK = asyncio.Lock()
 
-    No auth: this is an operator transparency surface. It only exposes service
-    health, never secrets, logs, or customer data.
-    """
-    import subprocess as _sp
 
-    def run(cmd):
-        try:
-            r = _sp.run(cmd, capture_output=True, text=True, timeout=60, shell=True)
-            return (r.stdout or r.stderr).strip()
-        except Exception as e:  # noqa: BLE001
-            return f"error: {e}"
+def _run_status_command(command: list[str]) -> str:
+    """Execute a fixed local guard without invoking a shell or leaking stderr."""
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=60, check=False)
+        return (result.stdout or result.stderr).strip()
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"error: {exc}"
 
-    lab = run("/home/scott/.local/bin/lab-stack 2>/dev/null")
-    venv = run("tail -1 /home/scott/ai-lab/logs/runtime-venv-guard.log 2>/dev/null")
-    secret = run("tail -1 /home/scott/ai-lab/reports/autonomy/secret-leak-guard.log 2>/dev/null")
-    hermes_rt = run("bash /home/scott/.hermes/scripts/hermes-runtime-guard.sh --report 2>/dev/null")
+
+def _last_guard_line(path: Path) -> str:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    last = line.strip()
+            return locals().get("last", "")
+    except OSError:
+        return "unavailable"
+
+
+def _collect_stack_status() -> dict:
+    """Run bounded local guards once; callers use the short-lived shared snapshot."""
+    lab = _run_status_command(["/home/scott/.local/bin/lab-stack"])
+    venv = _last_guard_line(Path("/home/scott/ai-lab/logs/runtime-venv-guard.log"))
+    secret = _last_guard_line(Path("/home/scott/ai-lab/reports/autonomy/secret-leak-guard.log"))
+    hermes_rt = _run_status_command([
+        "bash", "/home/scott/.hermes/scripts/hermes-runtime-guard.sh", "--report",
+    ])
+    failed = _run_status_command([
+        "systemctl", "--user", "list-units", "--type=service", "--state=failed", "--no-legend",
+    ])
+    failed_units = len([line for line in failed.splitlines() if line.strip()])
     all_green = "ALL GREEN" in lab
-    failed = run("systemctl --user list-units --type=service --state=failed --no-legend 2>/dev/null | wc -l").strip()
-    ts = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
-
-    data = {
-        "status": "operational" if (all_green and failed == "0") else "degraded",
-        "generated_at": ts,
+    return {
+        "status": "operational" if (all_green and failed_units == 0) else "degraded",
+        "generated_at": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC"),
         "all_green": all_green,
-        "failed_units": int(failed) if failed.isdigit() else -1,
+        "failed_units": failed_units,
         "guards": {
             "runtime_venv": venv,
             "secret_leak": secret,
@@ -573,7 +623,37 @@ async def stack_status(format: str = "html"):
         },
         "stack": lab,
     }
-    if format == "json":
+
+
+async def _stack_status_snapshot() -> dict:
+    global _STATUS_CACHE
+    now = time.monotonic()
+    expires_at, cached = _STATUS_CACHE
+    if cached and now < expires_at:
+        return cached
+    async with _STATUS_CACHE_LOCK:
+        now = time.monotonic()
+        expires_at, cached = _STATUS_CACHE
+        if cached and now < expires_at:
+            return cached
+        data = await asyncio.to_thread(_collect_stack_status)
+        _STATUS_CACHE = (time.monotonic() + _STATUS_CACHE_TTL_SECONDS, data)
+        return data
+
+
+@app.get("/status", response_class=HTMLResponse)
+@app.get("/status.json", response_class=JSONResponse)
+async def stack_status(request: Request):
+    """Public AI-stack status page + JSON from a short-lived, bounded local snapshot."""
+    data = await _stack_status_snapshot()
+    lab = str(data["stack"])
+    venv = str(data["guards"]["runtime_venv"])
+    secret = str(data["guards"]["secret_leak"])
+    hermes_rt = str(data["guards"]["hermes_runtime"])
+    all_green = bool(data["all_green"])
+    failed = str(data["failed_units"])
+    ts = str(data["generated_at"])
+    if request.url.path.endswith(".json"):
         return JSONResponse(data, headers={"Cache-Control": "public, max-age=60"})
 
     badge = "🟢 ALL GREEN" if all_green else "🔴 ISSUES"
@@ -857,6 +937,7 @@ async def sitemap_xml(request: Request):
         (f"{base}/blog", "daily", None),
         (f"{base}/support", "weekly", None),
         (f"{base}/contact", "weekly", None),
+        (f"{base}/private-ai-operations", "weekly", None),
         (f"{base}/tools/gpu-cost-calculator", "monthly", None),
         (f"{base}/proof-score", "hourly", None),
         (f"{base}/proof-benchmark", "daily", None),
@@ -913,6 +994,7 @@ async def llms_txt():
         "- https://aiautomatedsystems.ca/blog",
         "- https://aiautomatedsystems.ca/tools/gpu-cost-calculator",
         "- https://aiautomatedsystems.ca/contact",
+        "- https://aiautomatedsystems.ca/private-ai-operations",
         "",
         "## Public products",
     ]
@@ -1905,7 +1987,7 @@ input,textarea{{width:100%;padding:.8rem;margin:.5rem 0;border-radius:8px;border
 button{{width:100%;padding:.9rem;border:0;border-radius:10px;background:#0ea5e9;color:#fff;font-weight:700;font-size:1rem;cursor:pointer;margin-top:.8rem}}
 a{{color:#0f766e}}</style></head><body><div class='card'>
 <h1>🏢 Enterprise & custom</h1>
-<p class='muted'>Tell us about your stack and volume. We reply within 1 business day with a tailored plan and onboarding.</p>
+<p class='muted'>Tell us about your stack, operating boundary, and evaluation goals. We will review the request before proposing scope or terms.</p>
 <form id='contact-form'>
 <label for='cname'>Your name</label>
 <input name='name' id='cname' placeholder='Your name' required>
@@ -1924,7 +2006,7 @@ document.getElementById('contact-form').addEventListener('submit', async functio
   var needs=document.getElementById('cneeds').value;
   var r=await fetch('/api/contact',{{method:'POST',headers:{{'Content-Type':'application/json'}},
     body:JSON.stringify({{name:name,email:email,needs:needs,product:{product_js}}})}});
-  document.getElementById('cmsg').textContent = r.ok ? '✅ Sent — we will reply within 1 business day.' : 'Try again.';
+  document.getElementById('cmsg').textContent = r.ok ? '✅ Sent — your request is queued for review.' : 'Try again.';
 }});
 </script>
 <p class='muted'><a href='/'>← Back to store</a></p>

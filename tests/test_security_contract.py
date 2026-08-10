@@ -4,7 +4,6 @@ These run in-process (no live service needed) and lock the contract that the
 cross-service live smoke also enforces. Keep in sync with
 ~/.hermes/scripts/security_regression_smoke.py.
 """
-import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app

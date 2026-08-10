@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sovereign Mission Intelligence — AI Automated Systems</title>
-  <meta name="description" content="Sovereign Mission Intelligence for private AI operations: verified evidence, local inference, governed automation, and sellable workflows.">
+  <title>AI Automated Systems — Private AI Services, Catalog & Audits</title>
+  <meta name="description" content="Private AI operations, sold as a catalog of working assets: scoped services, local inference, automation kits, and verified audits for operators who need control.">
   <link rel="canonical" href="{{ site_base }}/">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="AI Automated Systems">
@@ -26,270 +26,378 @@
       --price: #b45309;
       --shadow: 0 12px 30px rgba(31,41,51,.06);
       --shadow-hover: 0 20px 45px rgba(15,118,110,.13);
+      --radius: 14px;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: var(--bg); color: var(--text); line-height: 1.6;
-      background-image: radial-gradient(circle at 10% 0%, rgba(15,118,110,.08), transparent 32rem), radial-gradient(circle at 90% 10%, rgba(180,83,9,.06), transparent 28rem);
+      background-image: radial-gradient(circle at 10% 0%, rgba(15,118,110,.07), transparent 32rem), radial-gradient(circle at 90% 12%, rgba(180,83,9,.05), transparent 28rem);
       min-height: 100vh;
     }
-    .container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
-    .site-nav { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:3rem; font-size:.9rem; }
-    .site-nav .brand { color:var(--text); font-weight:800; letter-spacing:.02em; text-decoration:none; }
-    .site-nav .links { display:flex; gap:1rem; flex-wrap:wrap; }
-    .site-nav a { color:var(--text-muted); text-decoration:none; }
-    .site-nav a:hover { color:var(--text); }
-    .hero { max-width:900px; margin:0 auto 2.5rem; text-align:center; }
-    .eyebrow { color:#0f766e; text-transform:uppercase; letter-spacing:.16em; font-size:.72rem; font-weight:800; }
-    .hero h1 { font-size:clamp(2.8rem,7vw,5.5rem); line-height:1.02; letter-spacing:-.06em; margin:.8rem 0 1rem; }
-    .hero h1 span { color:#0f766e; }
-    .hero-copy { color:var(--text-muted); font-size:1.2rem; max-width:760px; margin:0 auto 1.4rem; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem; }
+
+    /* ── Header / navigation ─────────────────────────────── */
+    .site-header {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(245,241,232,.9); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+    }
+    .site-nav { display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.9rem 1.5rem; max-width:1200px; margin:0 auto; }
+    .site-nav .brand { color:var(--text); font-weight:800; letter-spacing:.02em; text-decoration:none; font-size:1rem; }
+    .site-nav .brand span { color: var(--accent); }
+    .site-nav .links { display:flex; gap:1.2rem; align-items:center; flex-wrap:wrap; font-size:.9rem; }
+    .site-nav .links a { color:var(--text-muted); text-decoration:none; font-weight:600; }
+    .site-nav .links a:hover { color:var(--text); }
+    .site-nav .links a.cta-link { color:#fff; background:var(--accent); padding:.45rem .9rem; border-radius:8px; }
+    .site-nav .links a.cta-link:hover { background:var(--accent-hover); color:#fff; }
+
+    /* ── Hero ────────────────────────────────────────────── */
+    .hero { max-width:960px; margin:0 auto; padding:4.5rem 0 2.5rem; text-align:center; }
+    .eyebrow { color:var(--accent); text-transform:uppercase; letter-spacing:.16em; font-size:.72rem; font-weight:800; }
+    .hero h1 { font-size:clamp(2.4rem,5.5vw,4.2rem); line-height:1.05; letter-spacing:-.05em; margin:.9rem 0 1.1rem; }
+    .hero h1 span { color:var(--accent); }
+    .hero-copy { color:var(--text-muted); font-size:1.15rem; max-width:720px; margin:0 auto 1.6rem; }
     .hero-actions { display:flex; gap:.7rem; justify-content:center; flex-wrap:wrap; }
-    .btn { display:inline-flex; align-items:center; justify-content:center; padding:.75rem 1.1rem; border-radius:8px; font-size:.95rem; font-weight:700; text-decoration:none; transition:all .15s; }
-    .btn-primary { background:var(--accent); color:#fff; }
-    .btn-primary:hover { background:var(--accent-hover); box-shadow:0 8px 24px rgba(15,118,110,.3); }
+    .btn { display:inline-flex; align-items:center; justify-content:center; padding:.8rem 1.25rem; border-radius:10px; font-size:.95rem; font-weight:700; text-decoration:none; transition:all .15s; cursor:pointer; }
+    .btn-primary { background:var(--accent); color:#fff; border:1px solid var(--accent); }
+    .btn-primary:hover { background:var(--accent-hover); border-color:var(--accent-hover); box-shadow:0 8px 24px rgba(15,118,110,.3); transform:translateY(-1px); }
     .btn-secondary { background:transparent; color:var(--text); border:1px solid var(--border); }
     .btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
-    .proof-callout { display:flex; gap:1rem; align-items:center; justify-content:space-between; flex-wrap:wrap; max-width:900px; margin:0 auto 2.5rem; padding:1.25rem 1.5rem; background:linear-gradient(110deg,#eef6f3,#fff8ed); border:1px solid #99d5cf; border-radius:16px; position:relative; overflow:hidden; }
-    .proof-callout::after { content:""; position:absolute; top:0; bottom:0; width:22%; background:linear-gradient(90deg,transparent,rgba(255,255,255,.42),transparent); transform:translateX(-160%); animation:proof-scan 7s ease-in-out infinite; pointer-events:none; }
-    @keyframes proof-scan { 0%,62% { transform:translateX(-160%); } 82%,100% { transform:translateX(560%); } }
-    .proof-callout strong { display:block; font-size:1.05rem; }
-    .proof-callout p { color:#0f766e; margin:.25rem 0 0; font-size:.88rem; }
-    .proof-score { font-size:2.4rem; font-weight:900; color:#b45309; white-space:nowrap; }
-    .journey { margin:2.5rem auto; max-width:1000px; display:grid; grid-template-columns:repeat(4,1fr); gap:.7rem; }
-    .journey-step { padding:1rem; background:#fffdf8; border:1px solid var(--border); border-radius:12px; transition:transform .25s ease, border-color .25s ease, background .25s ease; }
-    .journey-step:hover { transform:translateY(-4px); border-color:#99d5cf; background:#f8fffc; }
-    .journey-step b { display:block; color:#0f766e; font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; }
-    .journey-step span { display:block; margin-top:.3rem; font-weight:700; }
-    .journey-step small { display:block; color:var(--text-muted); margin-top:.25rem; }
-    .section-heading { max-width:1000px; margin:3rem auto 1rem; }
-    .section-heading h2 { font-size:1.8rem; letter-spacing:-.03em; }
-    .section-heading p { color:var(--text-muted); margin-top:.35rem; }
-    .trust-bar { display:flex; flex-wrap:wrap; gap:1rem; justify-content:center; margin:0 auto 2.5rem; max-width:900px; color:var(--text-muted); font-size:.85rem; }
-    .trust-bar .pill { display:inline-flex; align-items:center; gap:.4rem; padding:.4rem .8rem; border:1px solid var(--border); border-radius:999px; background:var(--card); }
-    .trust-bar .pill b { color:var(--text); font-weight:600; }
-    .gpu-widget { max-width:420px; margin:0 auto 2.5rem; padding:1.25rem 1.5rem; background:linear-gradient(135deg,#fffdf8,#eef6f3); border:1px solid var(--border); border-radius:12px; text-align:center; transition:transform .25s ease, box-shadow .25s ease; }
-    .gpu-widget:hover { transform:translateY(-3px); box-shadow:0 18px 38px rgba(15,118,110,.12); }
-    .gpu-live { font-size:.75rem; letter-spacing:.1em; color:var(--text-muted); text-transform:uppercase; }
-    .gpu-live .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#34d399; margin-right:.4rem; animation:pulse 2s infinite; }
-    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
-    .gpu-stat { font-size:1.8rem; font-weight:800; color:var(--price); margin:.25rem 0; }
-    .gpu-sub { color:var(--text-muted); font-size:.8rem; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:1.5rem; }
-    .grid.grid-dense { grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); }
-    .grid.grid-dense .card-img { height:130px; }
-    .card-img { width:100%; height:180px; object-fit:cover; background:linear-gradient(135deg,#d9f3ee 0%,#fae8d5 100%); border-radius:8px; border:1px solid var(--border); display:block; transition:transform .45s cubic-bezier(.2,.8,.2,1), filter .45s ease, border-color .2s; }
-    .card-img:hover { border-color:var(--accent); transform:scale(1.02); filter:saturate(1.05); }
-    .card { position:relative; overflow:hidden; background:rgba(255,253,248,.88); border:1px solid var(--border); box-shadow:var(--shadow); border-radius:12px; padding:1.5rem; transition:border-color .25s ease, transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s ease; display:flex; flex-direction:column; gap:.75rem; isolation:isolate; }
-    .card::before { content:""; position:absolute; inset:-1px; z-index:-1; pointer-events:none; background:radial-gradient(220px circle at var(--mx,50%) var(--my,0%),rgba(20,184,166,.16),transparent 62%); opacity:0; transition:opacity .25s ease; }
-    .card:hover, .card:focus-within { border-color:var(--accent); transform:translateY(-6px); box-shadow:var(--shadow-hover); }
+    a:focus-visible, button:focus-visible, .btn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+    /* ── Section structure ───────────────────────────────── */
+    .section { padding:3rem 0; scroll-margin-top:70px; }
+    .section-heading { max-width:1000px; margin:0 auto 1.6rem; }
+    .section-heading .kicker { color:var(--accent); text-transform:uppercase; letter-spacing:.14em; font-size:.7rem; font-weight:800; margin-bottom:.4rem; }
+    .section-heading h2 { font-size:clamp(1.5rem,3vw,2rem); letter-spacing:-.03em; line-height:1.15; }
+    .section-heading p { color:var(--text-muted); margin-top:.45rem; max-width:760px; }
+
+    /* ── Cards ───────────────────────────────────────────── */
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:1.5rem; }
+    .card { position:relative; overflow:hidden; background:rgba(255,253,248,.92); border:1px solid var(--border); box-shadow:var(--shadow); border-radius:var(--radius); display:flex; flex-direction:column; transition:border-color .25s ease, transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s ease; }
+    .card::before { content:""; position:absolute; inset:-1px; z-index:0; pointer-events:none; background:radial-gradient(220px circle at var(--mx,50%) var(--my,0%),rgba(20,184,166,.14),transparent 62%); opacity:0; transition:opacity .25s ease; }
+    .card:hover, .card:focus-within { border-color:var(--accent); transform:translateY(-5px); box-shadow:var(--shadow-hover); }
     .card:hover::before, .card:focus-within::before { opacity:1; }
-    .card h3 { font-size:1.15rem; font-weight:700; transition:color .2s ease, transform .2s ease; }
-    .card:hover h3, .card:focus-within h3 { color:var(--accent-hover); transform:translateX(2px); }
-    .card .price { color:var(--price); font-weight:600; font-size:.95rem; }
-    .card .audience { color:var(--text-muted); font-size:.85rem; }
-    .card .actions { display:flex; gap:.5rem; margin-top:auto; }
-    .badge { display:inline-block; padding:.15rem .5rem; border-radius:4px; font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
+    .card-img { width:100%; height:170px; object-fit:cover; background:linear-gradient(135deg,#d9f3ee 0%,#fae8d5 100%); border-bottom:1px solid var(--border); display:block; transition:transform .45s cubic-bezier(.2,.8,.2,1), filter .45s ease; }
+    .card:hover .card-img { transform:scale(1.02); filter:saturate(1.05); }
+    .card-body { padding:1.25rem 1.25rem 1.1rem; display:flex; flex-direction:column; gap:.55rem; flex:1; position:relative; z-index:1; }
+    .card-tags { display:flex; gap:.45rem; flex-wrap:wrap; }
+    .card h3 { font-size:1.12rem; font-weight:700; line-height:1.3; }
+    .card h3 a { color:var(--text); text-decoration:none; }
+    .card:hover h3 a, .card:focus-within h3 a { color:var(--accent-hover); }
+    .card .audience { color:var(--text-muted); font-size:.88rem; }
+    .card .price { color:var(--price); font-weight:700; font-size:1rem; margin-top:.1rem; }
+    .card .actions { display:flex; gap:.5rem; margin-top:auto; padding-top:.65rem; flex-wrap:wrap; }
+    .card .actions .btn { flex:1; min-width:120px; padding:.65rem .8rem; font-size:.88rem; }
+    .badge { display:inline-block; padding:.18rem .55rem; border-radius:5px; font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
     .badge-ready { background:#d1fae5; color:#166534; }
+    .badge-early { background:#e0f2fe; color:#075985; }
     .badge-draft { background:#f5f1e8; color:#66717d; }
     .badge-popular { background:#f3a73c; color:#1a1205; font-weight:700; }
     .empty { text-align:center; padding:3rem; color:var(--text-muted); }
-    .newsletter { max-width:640px; margin:0 auto 2.5rem; padding:1.5rem; background:rgba(255,253,248,.88); border:1px solid var(--border); box-shadow:var(--shadow); border-radius:12px; text-align:center; }
+
+    /* ── Services strip ──────────────────────────────────── */
+    .services { border-top:1px solid var(--border); border-bottom:1px solid var(--border); background:rgba(255,253,248,.55); }
+    .services .grid { grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); }
+    .service-card { background:transparent; }
+    .service-card .card-body { padding:1.5rem; }
+    .service-card .svc-icon { font-size:1.5rem; line-height:1; }
+    .service-card h3 { font-size:1.2rem; }
+    .service-card .scope { color:var(--text-muted); font-size:.85rem; }
+
+    /* ── Proof / trust ───────────────────────────────────── */
+    .proof-band { display:grid; grid-template-columns:1.4fr 1fr; gap:1.2rem; max-width:1000px; margin:0 auto; }
+    .proof-callout { display:flex; gap:1rem; align-items:center; justify-content:space-between; flex-wrap:wrap; padding:1.3rem 1.5rem; background:linear-gradient(110deg,#eef6f3,#fff8ed); border:1px solid #99d5cf; border-radius:var(--radius); position:relative; overflow:hidden; }
+    .proof-callout strong { display:block; font-size:1.02rem; }
+    .proof-callout p { color:var(--accent); margin:.25rem 0 0; font-size:.85rem; }
+    .proof-score { font-size:2.2rem; font-weight:900; color:var(--price); white-space:nowrap; }
+    .gpu-widget { padding:1.3rem 1.5rem; background:linear-gradient(135deg,#fffdf8,#eef6f3); border:1px solid var(--border); border-radius:var(--radius); text-align:center; display:flex; flex-direction:column; justify-content:center; gap:.15rem; }
+    .gpu-live { font-size:.72rem; letter-spacing:.1em; color:var(--text-muted); text-transform:uppercase; }
+    .gpu-live .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#34d399; margin-right:.4rem; animation:pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+    .gpu-stat { font-size:1.6rem; font-weight:800; color:var(--price); }
+    .gpu-sub { color:var(--text-muted); font-size:.8rem; }
+    .gpu-widget .btn { margin-top:.6rem; }
+
+    /* ── Journey / how it works ──────────────────────────── */
+    .journey { display:grid; grid-template-columns:repeat(4,1fr); gap:.8rem; max-width:1000px; margin:0 auto; }
+    .journey-step { padding:1.1rem; background:var(--card); border:1px solid var(--border); border-radius:12px; transition:transform .25s ease, border-color .25s ease; }
+    .journey-step:hover { transform:translateY(-4px); border-color:#99d5cf; }
+    .journey-step b { display:block; color:var(--accent); font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; }
+    .journey-step span { display:block; margin-top:.3rem; font-weight:700; }
+    .journey-step small { display:block; color:var(--text-muted); margin-top:.25rem; }
+
+    /* ── Trust bar ───────────────────────────────────────── */
+    .trust-bar { display:flex; flex-wrap:wrap; gap:.8rem; justify-content:center; max-width:1000px; margin:0 auto; color:var(--text-muted); font-size:.85rem; }
+    .trust-bar .pill { display:inline-flex; align-items:center; gap:.4rem; padding:.4rem .8rem; border:1px solid var(--border); border-radius:999px; background:var(--card); }
+    .trust-bar .pill b { color:var(--text); font-weight:600; }
+
+    /* ── Newsletter ──────────────────────────────────────── */
+    .newsletter { max-width:640px; margin:0 auto; padding:1.6rem; background:rgba(255,253,248,.92); border:1px solid var(--border); box-shadow:var(--shadow); border-radius:var(--radius); text-align:center; }
     .newsletter h2 { font-size:1.25rem; margin-bottom:.25rem; }
     .newsletter p { color:var(--text-muted); font-size:.9rem; margin-bottom:1rem; }
     .newsletter form { display:flex; gap:.5rem; justify-content:center; flex-wrap:wrap; }
-    .newsletter input[type=email] { flex:1; min-width:220px; padding:.7rem 1rem; border-radius:8px; border:1px solid var(--border); background:#f5f1e8; color:var(--text); font-size:.9rem; }
-    .newsletter .btn { flex:0 0 auto; }
+    .newsletter input[type=email], .newsletter input[type=text] { padding:.7rem 1rem; border-radius:8px; border:1px solid var(--border); background:#f5f1e8; color:var(--text); font-size:.9rem; }
+    .newsletter input[type=email] { flex:1; min-width:220px; }
+    .newsletter input[type=text] { flex:0 0 170px; }
     .newsletter .msg { margin-top:.75rem; font-size:.85rem; min-height:1.2em; }
     .newsletter .msg.ok { color:var(--price); }
     .newsletter .msg.err { color:#f87171; }
-    .roi-band { margin:2.5rem auto; padding:2rem 1.5rem; max-width:900px; background:rgba(255,253,248,.88); border:1px solid var(--border); box-shadow:var(--shadow); border-radius:16px; text-align:center; }
-    .roi-title { font-size:1.4rem; font-weight:800; }
-    .roi-sub { color:var(--text-muted); font-size:.9rem; margin:.4rem 0 1.2rem; }
+
+    /* ── ROI band ────────────────────────────────────────── */
+    .roi-band { margin:0 auto; padding:1.8rem 1.5rem; max-width:900px; background:rgba(255,253,248,.92); border:1px solid var(--border); box-shadow:var(--shadow); border-radius:var(--radius); text-align:center; }
+    .roi-title { font-size:1.3rem; font-weight:800; }
+    .roi-sub { color:var(--text-muted); font-size:.88rem; margin:.4rem 0 1.1rem; }
     .roi-row { display:flex; gap:1rem; justify-content:center; flex-wrap:wrap; }
     .roi-row label { display:flex; flex-direction:column; gap:.3rem; font-size:.8rem; color:var(--text-muted); text-align:left; }
     .roi-row input, .roi-row select { padding:.6rem .8rem; border-radius:8px; border:1px solid var(--border); background:#f5f1e8; color:var(--text); font-size:.95rem; width:200px; }
-    .roi-result { margin-top:1.2rem; font-size:1.05rem; font-weight:600; color:var(--price); min-height:1.5em; }
+    .roi-result { margin-top:1.1rem; font-size:1rem; font-weight:600; color:var(--price); min-height:1.5em; }
     .roi-result small { color:var(--text-muted); font-weight:400; }
-    .empire-band { margin:3rem auto 1rem; padding:2rem 1.5rem; max-width:1100px; background:linear-gradient(135deg,#fffdf8,#eef6f3); border:1px solid var(--border); border-radius:16px; text-align:center; }
-    .empire-title { font-size:1.6rem; font-weight:800; letter-spacing:-.02em; background:linear-gradient(135deg,#1f2933 0%,#64748b 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
-    .empire-sub { color:var(--text-muted); font-size:.95rem; margin:.5rem 0 1.5rem; }
-    .empire-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:1rem; text-align:left; }
-    .empire-card { background:rgba(255,253,248,.88); border:1px solid var(--border); box-shadow:var(--shadow); border-radius:12px; overflow:hidden; text-decoration:none; color:var(--text); transition:border-color .2s, transform .2s; display:flex; flex-direction:column; }
-    .empire-card:hover { border-color:var(--accent); transform:translateY(-2px); }
-    .empire-card img { width:100%; height:120px; object-fit:cover; display:block; }
-    .empire-card-body { padding:1rem; display:flex; flex-direction:column; gap:.4rem; flex:1; }
-    .empire-card-body h3 { font-size:1rem; font-weight:700; }
-    .empire-card-body .price { color:var(--price); font-weight:600; font-size:.9rem; margin-bottom:.25rem; }
-    .empire-cta { margin-top:auto; text-align:center; }
-    footer { text-align:center; margin-top:3rem; color:var(--text-muted); font-size:.85rem; }
-    footer a { color:var(--accent); text-decoration:none; }
+
+    /* ── Footer ──────────────────────────────────────────── */
+    footer.site-footer { border-top:1px solid var(--border); margin-top:4rem; background:rgba(255,253,248,.6); }
+    .footer-grid { max-width:1200px; margin:0 auto; padding:2.5rem 1.5rem 1.5rem; display:grid; grid-template-columns:2fr 1fr 1fr 1fr; gap:2rem; }
+    .footer-grid h4 { font-size:.8rem; text-transform:uppercase; letter-spacing:.1em; color:var(--text-muted); margin-bottom:.7rem; }
+    .footer-grid a { display:block; color:var(--text-muted); text-decoration:none; font-size:.9rem; padding:.18rem 0; }
+    .footer-grid a:hover { color:var(--accent); }
+    .footer-brand p { color:var(--text-muted); font-size:.88rem; max-width:300px; margin-top:.4rem; }
+    .footer-bottom { text-align:center; color:var(--text-muted); font-size:.8rem; padding:1.2rem 1rem; border-top:1px solid var(--border); }
+    .footer-bottom a { color:var(--accent); text-decoration:none; }
+
     @media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation-duration:.001ms !important; animation-iteration-count:1 !important; scroll-behavior:auto !important; transition-duration:.001ms !important; } }
-    @media(max-width:700px){ .journey{grid-template-columns:1fr 1fr} .site-nav{align-items:flex-start;flex-direction:column} .hero h1{font-size:2.4rem} .proof-score{font-size:1.8rem} }
+    @media(max-width:820px){
+      .site-nav { flex-direction:column; align-items:flex-start; gap:.6rem; padding:.8rem 1.5rem; }
+      .hero { padding-top:3rem; } .hero h1 { font-size:2.2rem; }
+      .journey { grid-template-columns:1fr 1fr; }
+      .proof-band { grid-template-columns:1fr; }
+      .footer-grid { grid-template-columns:1fr 1fr; }
+      .card .actions .btn { min-width:100%; }
+    }
   </style>
   <script src="/landing-assets/analytics.js" defer></script>
   <script type="application/ld+json">
-  {"@context":"https://schema.org","@type":"ItemList","itemListElement":[{% for p in products %}{"@type":"ListItem","position":loop.index,"item":{"@type":"Product","name":"{{ p.name }}","url":"{{ site_base }}/p/{{ p.slug }}"}}{% if not loop.last %},{% endif %}{% endfor %}]}
+  {"@context":"https://schema.org","@type":"ItemList","itemListElement":[{% for p in products %},{"@type":"ListItem","position":{{ loop.index }},"item":{"@type":"Product","name":"{{ p.name }}","url":"{{ site_base }}/p/{{ p.slug }}"}}{% if not loop.last %},{% endif %}{% endfor %}]}
   </script>
   <script type="application/ld+json">
   {"@context":"https://schema.org","@type":"Organization","name":"{{ site_name }}","url":"{{ site_base }}/","logo":"{{ site_base }}/favicon.ico"}
   </script>
-  <script type="application/ld+json">
-  {"@context":"https://schema.org","@type":"WebSite","name":"{{ site_name }}","url":"{{ site_base }}/","potentialAction":{"@type":"SearchAction","target":"{{ site_base }}/p/index?q={search_term_string}","query-input":"required name=search_term_string"}}
-  </script>
 </head>
 <body>
-<main>
-<div class="container">
+<header class="site-header">
   <nav class="site-nav" aria-label="Primary navigation">
-    <a class="brand" href="/">AI AUTOMATED SYSTEMS</a>
-    <div class='links'><a href='/proof-score'>Proof Score</a><a href='/proof-benchmark'>Benchmark</a><a href='/free-audit-guide'>Free Audit</a><a href='/pricing'>Pricing</a><a href='/contact'>Talk to an operator</a></div>
+    <a class="brand" href="/">AI AUTOMATED <span>SYSTEMS</span></a>
+    <div class="links">
+      <a href="#services">Services</a>
+      <a href="#catalog">Catalog</a>
+      <a href="/proof-score">Proof</a>
+      <a href="/free-audit-guide">Free Audit</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/contact" class="cta-link">Talk to an operator →</a>
+    </div>
   </nav>
+</header>
 
-  <header class="hero">
-    <div class="eyebrow">Sovereign Mission Intelligence</div>
-    <h1>Build it locally.<br><span>Operate it with proof.</span></h1>
-    <p class="hero-copy">A private decision-support fabric connecting verified evidence, operational context, explainable analysis, governed actions, and local AI tools — without surrendering control of your data.</p>
-    <div class="hero-actions"><a class="btn btn-primary" href="/proof-score">Inspect live proof →</a><a class="btn btn-secondary" href="/free-audit-guide">Run the readiness audit</a><a class="btn btn-secondary" href="#offers">Browse ready-to-buy assets</a></div>
-  </header>
-
-  <section class="proof-callout" aria-label="Live platform proof">
-    <div><strong>Our own fleet publishes operational evidence, not marketing claims.</strong><p>GPU health · resilience · autonomy · catalog truth · signed aggregate report</p></div>
-    <div><span class="proof-score" id="home-proof-score">Loading proof…</span><a class="btn btn-secondary" href="/proof-score">Inspect evidence</a></div>
-  </section>
-
-  <section class="journey" aria-label="Platform journey">
-    <div class="journey-step"><b>01 · Prove</b><span>Readiness & health</span><small>Know what is actually running.</small></div>
-    <div class="journey-step"><b>02 · Run</b><span>Private inference</span><small>Route work to owned GPUs.</small></div>
-    <div class="journey-step"><b>03 · Automate</b><span>Workflows & agents</span><small>Make repeatable work boring.</small></div>
-    <div class="journey-step"><b>04 · Compound</b><span>Revenue operations</span><small>Turn reliable systems into offers.</small></div>
-  </section>
-
-  <div class="trust-bar">
-    <span class="pill">🔒 <b>Secure checkout</b> via Stripe & Gumroad</span>
-    <span class="pill">🧭 <b>Clear scope & pricing</b> before purchase</span>
-    <span class="pill">📦 <b>Documented delivery</b> or human onboarding</span>
-    <span class="pill">🛡️ <b>Private-first</b> options where practical</span>
-    <span class="pill">🤝 <b>Human support</b> for every offer</span>
-  </div>
-
-  <div class="gpu-widget" id="gpu-widget">
-    <div class="gpu-live"><span class="dot" id="gpu-dot"></span> GPU CAPACITY</div>
-    <div class="gpu-stat"><b id="gpu-free">Checking capacity…</b></div>
-    <div class="gpu-sub" id="gpu-name">checking…</div>
-    <a href="/p/hardonia-compute-api-access" class="btn btn-primary" style="margin-top:.5rem">Run a job on these GPUs →</a>
-  </div>
-
-  <div class="newsletter">
-    <h2>Get the AI Lab Monetization Playbook</h2>
-    <p>Free 1-page guide + early access to new tooling. No spam.</p>
-    <form id="nl-form">
-      <input type="email" id="nl-email" placeholder="you@company.com" required>
-      <input type="text" id="nl-code" placeholder="discount code (optional)" style="flex:0 0 180px;padding:.7rem 1rem;border-radius:8px;border:1px solid var(--border);background:#f5f1e8;color:var(--text);font-size:.9rem;">
-      <input type="text" id="nl-website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;">
-      <button type="submit" class="btn btn-primary">Subscribe</button>
-    </form>
-    <div class="msg" id="nl-msg"></div>
-  </div>
-
-  <section class="roi-band">
-    <h2 class="roi-title">See Your Bottom-Line Savings</h2>
-    <p class="roi-sub">Illustrative private GPU inference estimate. Adjust the inputs to see a planning comparison; actual scope, capacity, and currency follow the selected product.</p>
-    <div class="roi-row">
-      <label>Current cloud GPU spend ($/mo)<input type="number" id="roi-cloud" value="800" min="0" step="50"></label>
-      <label>GPU hours / mo<input type="number" id="roi-hours" value="40" min="1" step="5"></label>
-      <label>Tier<select id="roi-tier"><option value="starter">Starter $20</option><option value="scale" selected>Pro $99</option><option value="concierge">Enterprise $299</option></select></label>
-    </div>
-    <div class="roi-result" id="roi-result">—</div>
-  </section>
-
-  <section class="section-heading"><h2 id="offers">Mission assurance, from evidence to execution</h2><p>Start with proof, add capability, then scale into governed operations. Each layer works alone and becomes more valuable with the next.</p></section>
-
-  {% if featured_products %}
-  <div class="grid {% if product_grid_dense %}grid-dense{% endif %}">
-    {% for p in featured_products %}
-    <div class="card">
-      {% if p.image_path %}<a href="/p/{{ p.slug }}"><img src="{{ p.image_path }}" alt="{{ p.name }}" class="card-img"></a>{% endif %}
-      <span class="badge badge-ready">Platform layer</span><h3>{{ p.name }}</h3>
-      {% if p.pain %}<p class="audience">{{ p.pain }}</p>{% elif p.offer %}<p class="audience">{{ p.offer }}</p>{% endif %}
-      {% if p.price %}<p class="price">{{ p.price }}</p>{% endif %}
-      <div class="actions"><a href="/p/{{ p.slug }}" class="btn btn-secondary">See the layer</a><a href="/lead?slug={{ p.slug }}" class="btn btn-primary">Get the guide</a></div>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  <section class="section-heading"><h2>Everything else, organized by outcome</h2><p>Digital packs and specialist tools plug into the same operating system: private, reproducible, supportable, and ready to ship.</p></section>
-
-  {% if catalog_products %}
-  <div class="grid {% if product_grid_dense %}grid-dense{% endif %}">
-    {% for p in catalog_products %}
-    <div class="card">
-      {% if p.image_path %}
-      <a href="/p/{{ p.slug }}">
-        <img src="{{ p.image_path }}" alt="{{ p.name }}" class="card-img" loading="lazy">
-      </a>
-      {% endif %}
-      <div>
-        {% if p.status in ['ready', 'early-access'] %}
-        <span class="badge badge-ready">{% if p.status == 'early-access' %}Early access{% else %}Ready{% endif %}</span>
-        {% else %}
-        <span class="badge badge-draft">{{ p.status }}</span>
-        {% endif %}
-        {% if p.slug in popular_slugs %}
-        <span class="badge badge-popular">★ Most Popular</span>
-        {% endif %}
+<main>
+  <div class="container">
+    <header class="hero">
+      <div class="eyebrow">Sovereign Mission Intelligence</div>
+      <h1>Private AI operations.<br><span>Sold as working assets.</span></h1>
+      <p class="hero-copy">Scoped services, local inference, automation kits, and verified audits — every deliverable backed by real evidence from our own running fleet.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#catalog">Browse the catalog →</a>
+        <a class="btn btn-secondary" href="#services">Explore services</a>
+        <a class="btn btn-secondary" href="/proof-score">Inspect live proof</a>
       </div>
-      <h3>{{ p.name }}</h3>
-      {% if p.audience %}<p class="audience">For: {{ p.audience }}</p>{% endif %}
-      {% if p.offer %}<p class="audience">{{ p.offer }}</p>{% endif %}
-      {% if p.price %}<p class="price">{{ p.price }}</p>{% endif %}
-      <div class="actions">
-        <a href="/p/{{ p.slug }}" class="btn btn-secondary">View Details</a>
-        <a href="/lead?slug={{ p.slug }}" class="btn btn-secondary" style="border-color:var(--accent);color:var(--accent)">Free Guide</a>
-        {% if p.status in ['ready', 'early-access'] %}
-          {% if p.checkout_url %}
-          <a href="{{ p.checkout_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">{% if cta_variant == 'B' %}Get Instant Access{% else %}Buy Now{% endif %}</a>
-          {% elif p.gumroad_url %}
-          <a href="{{ p.gumroad_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">{% if cta_variant == 'B' %}Get It on Gumroad{% else %}Buy on Gumroad{% endif %}</a>
-          {% endif %}
-        {% else %}
-          <a href="/p/{{ p.slug }}" class="btn btn-primary">Contact / Details</a>
-        {% endif %}
-      </div>
-    </div>
-    {% endfor %}
+    </header>
   </div>
-  {% else %}
-    <div class="empty"><p>No products available yet. Check back soon.</p></div>
-  {% endif %}
 
-  {% set empire = products | selectattr("slug", "in", empire_slugs) | list %}
-  {% if empire %}
-  <section class="empire-band">
-    <h2 class="empire-title">Sovereign Mission Intelligence — AI Operations, End to End</h2>
-    <p class="empire-sub">One operator. A self-healing GPU fleet, a live revenue stack, and done-for-you services — all running 24/7.</p>
-    <div class="empire-grid">
-      {% for p in empire %}
-      <a class="empire-card" href="/p/{{ p.slug }}">
-        {% if p.image_path %}<img src="{{ p.image_path }}" alt="{{ p.name }}" loading="lazy">{% endif %}
-        <div class="empire-card-body">
-          <h3>{{ p.name }}</h3>
-          <p class="price">{{ p.price }}</p>
-          <span class="btn btn-primary empire-cta">{% if cta_variant == 'B' %}Get Started{% else %}Explore{% endif %} →</span>
+  <section class="section services" id="services" aria-label="Services">
+    <div class="container">
+      <div class="section-heading">
+        <div class="kicker">Services</div>
+        <h2>Done-with-you, scoped, and priced up front</h2>
+        <p>Pick a lane below, or talk to an operator about a custom scope. Every engagement starts from a real assessment of your current stack.</p>
+      </div>
+      <div class="grid">
+        {% for p in services %}
+        <div class="card service-card">
+          <div class="card-body">
+            <span class="badge {% if p.status == 'early-access' %}badge-early{% else %}badge-ready{% endif %}">{% if p.status == 'early-access' %}Early access{% else %}Ready{% endif %}</span>
+            <h3><a href="/p/{{ p.slug }}">{{ p.name }}</a></h3>
+            {% if p.pain %}<p class="audience">{{ p.pain }}</p>{% elif p.offer %}<p class="audience">{{ p.offer }}</p>{% endif %}
+            {% if p.price %}<p class="price">{{ p.price }}</p>{% endif %}
+            <div class="actions">
+              <a href="/p/{{ p.slug }}" class="btn btn-secondary">See the service</a>
+              <a href="/contact?product={{ p.slug }}" class="btn btn-primary">Discuss scope</a>
+            </div>
+          </div>
         </div>
-      </a>
-      {% endfor %}
+        {% endfor %}
+        {% if not services %}<div class="empty"><p>Services are being scheduled — check the catalog below or <a href="/contact">talk to an operator</a>.</p></div>{% endif %}
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="catalog" aria-label="Product catalog">
+    <div class="container">
+      <div class="section-heading">
+        <div class="kicker">Catalog</div>
+        <h2>Ready-to-buy assets, organized by outcome</h2>
+        <p>Digital packs, tooling, and compute access that plug into your stack today. Secure checkout, documented delivery, human support.</p>
+      </div>
+
+      {% if catalog_products %}
+      <div class="grid">
+        {% for p in catalog_products %}
+        <div class="card">
+          {% if p.image_path %}
+          <a href="/p/{{ p.slug }}" tabindex="-1" aria-hidden="true"><img src="{{ p.image_path }}" alt="{{ p.name }}" class="card-img" loading="lazy"></a>
+          {% endif %}
+          <div class="card-body">
+            <div class="card-tags">
+              <span class="badge {% if p.status == 'early-access' %}badge-early{% else %}badge-ready{% endif %}">{% if p.status == 'early-access' %}Early access{% else %}Ready{% endif %}</span>
+              {% if p.slug in popular_slugs %}<span class="badge badge-popular">★ Most Popular</span>{% endif %}
+            </div>
+            <h3><a href="/p/{{ p.slug }}">{{ p.name }}</a></h3>
+            {% if p.audience %}<p class="audience">For: {{ p.audience }}</p>{% endif %}
+            {% if p.offer and p.offer != p.audience %}<p class="audience">{{ p.offer }}</p>{% endif %}
+            {% if p.price %}<p class="price">{{ p.price }}</p>{% endif %}
+            <div class="actions">
+              <a href="/p/{{ p.slug }}" class="btn btn-secondary">Details</a>
+              {% if p.checkout_url %}
+              <a href="{{ p.checkout_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">{% if cta_variant == 'B' %}Get Instant Access{% else %}Buy Now{% endif %}</a>
+              {% elif p.gumroad_url %}
+              <a href="{{ p.gumroad_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-slug="{{ p.slug }}">{% if cta_variant == 'B' %}Get It on Gumroad{% else %}Buy on Gumroad{% endif %}</a>
+              {% else %}
+              <a href="/contact?product={{ p.slug }}" class="btn btn-primary">Contact / Details</a>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty"><p>No products available yet. <a href="/contact">Contact an operator</a> to pre-order.</p></div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="section" id="proof" aria-label="Operational proof">
+    <div class="container">
+      <div class="section-heading">
+        <div class="kicker">Proof, not promises</div>
+        <h2>Operated by the fleet it sells</h2>
+        <p>Our own infrastructure publishes live operational evidence — no marketing claims, just measured state.</p>
+      </div>
+      <div class="proof-band">
+        <div class="proof-callout" aria-label="Live platform proof">
+          <div><strong>Our own fleet publishes operational evidence, not marketing claims.</strong><p>GPU health · resilience · autonomy · catalog truth · signed aggregate report</p></div>
+          <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap"><span class="proof-score" id="home-proof-score">Loading proof…</span><a class="btn btn-secondary" href="/proof-score">Inspect evidence</a></div>
+        </div>
+        <div class="gpu-widget" id="gpu-widget">
+          <div class="gpu-live"><span class="dot" id="gpu-dot"></span> GPU CAPACITY</div>
+          <div class="gpu-stat"><b id="gpu-free">Checking capacity…</b></div>
+          <div class="gpu-sub" id="gpu-name">checking…</div>
+          <a href="/p/hardonia-compute-api-access" class="btn btn-primary">Run a job on these GPUs →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="how" aria-label="How it works">
+    <div class="container">
+      <div class="journey">
+        <div class="journey-step"><b>01 · Prove</b><span>Readiness & health</span><small>Know what is actually running.</small></div>
+        <div class="journey-step"><b>02 · Run</b><span>Private inference</span><small>Route work to owned GPUs.</small></div>
+        <div class="journey-step"><b>03 · Automate</b><span>Workflows & agents</span><small>Make repeatable work boring.</small></div>
+        <div class="journey-step"><b>04 · Compound</b><span>Revenue operations</span><small>Turn reliable systems into offers.</small></div>
+      </div>
+    </div>
+  </section>
+
+  {% if trust_bar_enabled %}
+  <section class="section" style="padding-top:0" aria-label="Trust signals">
+    <div class="container">
+      <div class="trust-bar">
+        <span class="pill">🔒 <b>Secure checkout</b> via Stripe & Gumroad</span>
+        <span class="pill">🧭 <b>Clear scope & pricing</b> before purchase</span>
+        <span class="pill">📦 <b>Documented delivery</b> or human onboarding</span>
+        <span class="pill">🛡️ <b>Private-first</b> options where practical</span>
+        <span class="pill">🤝 <b>Human support</b> for every offer</span>
+      </div>
     </div>
   </section>
   {% endif %}
 
-  <footer>
-    <p>AI Automated Systems · <a href="/legal/terms-of-service">Terms</a> · <a href="/legal/privacy-policy">Privacy</a> · <a href="/legal/refund-policy">Refunds</a> · <a href="/unsubscribe">Unsubscribe</a> · <a href="/status">Live Status</a></p>
-  </footer>
+  {% if newsletter_enabled %}
+  <section class="section" id="newsletter" aria-label="Newsletter">
+    <div class="container">
+      <div class="newsletter">
+        <h2>Get the AI Lab Monetization Playbook</h2>
+        <p>Free 1-page guide + early access to new tooling. No spam.</p>
+        <form id="nl-form">
+          <input type="email" id="nl-email" placeholder="you@company.com" required>
+          <input type="text" id="nl-code" placeholder="discount code (optional)" autocomplete="off">
+          <input type="text" id="nl-website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;">
+          <button type="submit" class="btn btn-primary">Subscribe</button>
+        </form>
+        <div class="msg" id="nl-msg"></div>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="section" id="roi" aria-label="Cost planning">
+    <div class="container">
+      <div class="roi-band">
+        <h2 class="roi-title">See Your Bottom-Line Savings</h2>
+        <p class="roi-sub">Illustrative private GPU inference estimate. Adjust the inputs to see a planning comparison; actual scope, capacity, and currency follow the selected product.</p>
+        <div class="roi-row">
+          <label>Current cloud GPU spend ($/mo)<input type="number" id="roi-cloud" value="800" min="0" step="50"></label>
+          <label>GPU hours / mo<input type="number" id="roi-hours" value="40" min="1" step="5"></label>
+          <label>Tier<select id="roi-tier"><option value="starter">Starter $20</option><option value="scale" selected>Pro $99</option><option value="concierge">Enterprise $299</option></select></label>
+        </div>
+        <div class="roi-result" id="roi-result">—</div>
+      </div>
+    </div>
+  </section>
 </main>
-</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="/" style="font-weight:800;color:var(--text);text-decoration:none">AI AUTOMATED SYSTEMS</a>
+      <p>Private AI operations, sold as working assets. Built by one operator running the same stack it sells.</p>
+    </div>
+    <div>
+      <h4>Explore</h4>
+      <a href="#services">Services</a>
+      <a href="#catalog">Catalog</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/proof-score">Proof Score</a>
+      <a href="/proof-benchmark">Benchmark</a>
+      <a href="/free-audit-guide">Free Audit</a>
+    </div>
+    <div>
+      <h4>Support</h4>
+      <a href="/contact">Talk to an operator</a>
+      <a href="/support">Support</a>
+      <a href="/status">Live status</a>
+      <a href="/unsubscribe">Unsubscribe</a>
+    </div>
+    <div>
+      <h4>Legal</h4>
+      <a href="/legal/terms-of-service">Terms</a>
+      <a href="/legal/privacy-policy">Privacy</a>
+      <a href="/legal/refund-policy">Refunds</a>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    AI Automated Systems · Operated with live proof · <a href="/status">System status</a>
+  </div>
+</footer>
 
 <script>
   (function () { try { if (!document.cookie.match(/(^|; )aas_sid=/)) { var sid = 's' + Date.now() + Math.random().toString(36).substr(2, 8); document.cookie = 'aas_sid=' + sid + '; path=/; max-age=2592000; SameSite=Lax'; } } catch (e) {} })();
@@ -297,6 +405,7 @@
   (function () { fetch('/api/proof-score').then(function (r) { return r.json(); }).then(function (d) { var node = document.getElementById('home-proof-score'); if (node && d.overall_score !== undefined) node.textContent = d.overall_score + '/100'; }).catch(function () {}); })();
   (function () { function tick() { fetch('/api/gpu-status').then(function (r) { return r.json(); }).then(function (d) { if (d.status !== 'ok') return; document.getElementById('gpu-free').textContent = d.free_pct + '% VRAM free'; var label = d.gpu || 'GPU online'; if (d.from_cents_per_hour) { label += ' · from $' + (d.from_cents_per_hour/100).toFixed(2) + '/hr'; } document.getElementById('gpu-name').textContent = label; var dot = document.getElementById('gpu-dot'); dot.style.background = d.free_pct > 50 ? '#0f766e' : '#b45309'; }).catch(function () { document.getElementById('gpu-free').textContent = 'Capacity status unavailable'; document.getElementById('gpu-name').textContent = 'No live capacity response'; document.getElementById('gpu-dot').style.background = '#b45309'; }); } tick(); setInterval(tick, 30000); })();
   (function () { var cloud = document.getElementById('roi-cloud'); var hours = document.getElementById('roi-hours'); var tier = document.getElementById('roi-tier'); var out = document.getElementById('roi-result'); if (!cloud || !out) return; function calc() { var c = parseFloat(cloud.value) || 0, h = parseFloat(hours.value) || 1, t = tier.value; fetch('/api/roi-calc?cloud_spend=' + c + '&hours=' + h + '&tier=' + t).then(function (r) { return r.json(); }).then(function (d) { out.innerHTML = 'Save <b>$' + d.monthly_savings.toFixed(0) + '/mo</b> ($' + d.annual_savings.toFixed(0) + '/yr, ' + d.savings_pct + '%) vs cloud · ' + 'our rate $' + d.our_fixed_rate_per_hr + '/hr vs cloud $' + d.cloud_blended_rate_per_hr + '/hr <br><small>Planning estimate only; scope, capacity, and support terms vary by product.</small>'; }).catch(function () { out.textContent = 'Calculator unavailable.'; }); } [cloud, hours, tier].forEach(function (el) { el.addEventListener('input', calc); el.addEventListener('change', calc); }); calc(); })();
+  (function () { var cards = document.querySelectorAll('.card'); cards.forEach(function (c) { c.addEventListener('pointermove', function (e) { var r = c.getBoundingClientRect(); c.style.setProperty('--mx', (e.clientX - r.left) + 'px'); c.style.setProperty('--my', (e.clientY - r.top) + 'px'); }, { passive: true }); }); })();
 </script>
 <script src="/support-widget.js" defer></script>
 </body>

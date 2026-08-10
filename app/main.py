@@ -1008,6 +1008,12 @@ POPULAR_SLUGS = {
     "ai-lab-health-report", "comfyui-workflow-pack", "n8n-automation-kit",
     "hardonia-compute-api-access", "local-ai-ops-checklist",
 }
+# True consulting/services engagements (scoped, priced up front) vs. catalog assets.
+# Shown in the homepage "Services" band; everything else saleable goes to "Catalog".
+SERVICE_SLUGS = {
+    "sovereign-mission-intelligence", "autonomous-revenue-loop",
+    "hardonia-enterpriser", "sentinel-note", "private-ai-assurance-retainer",
+}
 GPU_STATUS_URL = os.getenv("GPU_STATUS_URL", "http://127.0.0.1:8050/api/v1/metering/gpu")
 
 
@@ -1118,13 +1124,16 @@ async def index(request: Request):
         p["checkout_url"] = _safe_external_url(p.get("checkout_url"))
         p["gumroad_url"] = _safe_external_url(p.get("gumroad_url"))
     saleable_products = [p for p in products if p.get("status") in {"ready", "early-access"}]
+    services = [p for p in saleable_products if p.get("slug") in SERVICE_SLUGS]
+    service_slugs = {p.get("slug") for p in services}
     featured_products = [p for p in saleable_products if p.get("slug") in {
         "sovereign-mission-intelligence", "sovereign-ops-score", "ai-box-doctor", "private-inference-access",
         "ai-portrait-studio", "hardonia-compute-api-access", "n8n-automation-kit", "comfyui-workflow-pack",
         "autonomous-revenue-loop",
     }]
     featured_slugs = {p.get("slug") for p in featured_products}
-    catalog_products = [p for p in saleable_products if p.get("slug") not in featured_slugs]
+    # Catalog shows every saleable product that is not a consulting service.
+    catalog_products = [p for p in saleable_products if p.get("slug") not in service_slugs]
     flags = flag_engine.load_flags()
     hero_variant = flag_engine.evaluate_variant("hero_variant", _session_id(request))
     cta_variant = flag_engine.evaluate_variant("cta_variant", _session_id(request))
@@ -1146,6 +1155,7 @@ async def index(request: Request):
     try:
         html = jinja_env.get_template("index.html").render(
             products=saleable_products,
+            services=services,
             featured_products=featured_products,
             catalog_products=catalog_products,
             title="AI Automated Systems — Tools, Audits & Workflows",

@@ -83,3 +83,17 @@ curl -s http://127.0.0.1:8020/api/products | head
 
 ## 🛒 Store
 Self-hosted AI infra, bundles & compute access: [aiautomatedsystems.ca](https://aiautomatedsystems.ca)
+
+---
+
+## Related Hardonia projects
+
+Part of the [Hardonia](https://aiautomatedsystems.ca) open-source + services stack:
+
+- **[ollama-router](https://github.com/Hardonian/ollama-router)** — self-optimizing multi-GPU Ollama router
+- **[ai-lab-audit-api](https://github.com/Hardonian/ai-lab-audit-api)** — local-first AI-lab audit API
+- **[ai-lab-command-center](https://github.com/Hardonian/ai-lab-command-center)** — AI operator dashboard
+- **[storefront](https://github.com/Hardonian/storefront)** — local-first product catalog + lead capture
+
+### Need a review?
+Get a fixed-scope [SaaS Repo Rescue Audit](https://aiautomatedsystems.ca/p/repo-rescue-saas-audit) — auth, billing, RLS, and webhook bugs found before customers do. Runs locally on your infra.

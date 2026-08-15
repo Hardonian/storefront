@@ -417,6 +417,25 @@ if PRODUCT_ASSETS.exists():
         name='product-assets',
     )
 
+# Serve organic growth site at /growth-site/
+GROWTH_SITE = Path('/home/scott/ai-lab/growth-site')
+if GROWTH_SITE.exists():
+    app.mount(
+        '/growth-site',
+        StaticFiles(directory=str(GROWTH_SITE), html=True),
+        name='growth-site',
+    )
+
+
+# Serve organic-insights blog at /insights/ (auto-published from night-signal pipeline)
+INSIGHTS_DIR = Path(__file__).resolve().parent.parent / "static" / "insights"
+if INSIGHTS_DIR.exists():
+    app.mount(
+        "/insights",
+        StaticFiles(directory=str(INSIGHTS_DIR), html=True),
+        name="insights",
+    )
+
 
 @app.api_route("/private-ai-operations", methods=["GET", "HEAD"], include_in_schema=False)
 async def private_ai_operations_page():
@@ -508,7 +527,7 @@ _AUDIT_API_URL = os.getenv("AUDIT_API_URL", "http://127.0.0.1:8011")
 
 
 @app.api_route(
-    "/audit/{path:path}",
+    "/audit/proxy/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 )
 async def proxy_audit(path: str, request: Request):
@@ -533,6 +552,67 @@ async def platform_truth_api():
     """Sanitized public readiness summary; never returns raw evidence or paths."""
     if not TRUTH_LATEST.exists():
         raise HTTPException(status_code=503, detail="Platform truth is refreshing")
+
+
+# Public free "Instant Repo Health Check" — zero-friction lead magnet.
+# Form POSTs same-origin to /audit/api/score which proxies to audit-api /api/score.
+@app.api_route("/audit/api/score", methods=["POST", "OPTIONS"])
+async def proxy_audit_score(request: Request):
+    url = f"{_AUDIT_API_URL}/api/score"
+    body = await request.body()
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length")}
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.request(request.method, url, content=body, headers=headers)
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        headers={k: v for k, v in resp.headers.items() if k.lower() not in ("transfer-encoding", "connection")},
+        media_type=resp.headers.get("content-type"),
+    )
+
+
+@app.get("/audit/", response_class=HTMLResponse)
+async def audit_landing(request: Request):
+    """Free instant repo health check — no signup required to see your score."""
+    html = """<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Free Repo Health Check — AI Automated Systems</title>
+<meta name='description' content='Paste a repo description and get a free 5-point auth, billing, RLS, Stripe, and webhook health score in seconds. No signup.'>
+<script type='application/ld+json'>{"@context":"https://schema.org","@type":"WebApplication","name":"Free Repo Health Check","url":"https://aiautomatedsystems.ca/audit/","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+<style>body{font-family:system-ui;background:#0b1020;color:#e5e7eb;max-width:680px;margin:6vh auto;padding:0 20px;line-height:1.7}
+h1{font-size:2rem;background:linear-gradient(90deg,#22d3ee,#a78bfa);-webkit-background-clip:text;background-clip:text;color:transparent}
+textarea,input{width:100%;padding:.7rem;margin:.4rem 0;border-radius:8px;border:1px solid #334155;background:#111827;color:#e5e7eb;font-size:1rem}
+button{background:#22d3ee;color:#04222b;border:0;padding:.8rem 1.4rem;border-radius:8px;font-weight:700;cursor:pointer;margin-top:.6rem}
+.score{font-size:3rem;font-weight:800;color:#22d3ee}
+.card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:1.2rem;margin-top:1rem}
+a{color:#22d3ee}.cta{display:inline-block;margin-top:1rem;background:#a78bfa;color:#1a1030;text-decoration:none;padding:.7rem 1.3rem;border-radius:8px;font-weight:700}</style></head>
+<body>
+<h1>Free Instant Repo Health Check</h1>
+<p>Paste your project's README or a short description. Get a 5-point health score on <b>auth, billing, RLS, Stripe webhooks, and deploy hygiene</b> — instantly, no signup.</p>
+<form id='f'>
+<label>Project name</label><input id='name' placeholder='my-saas' value='my-saas'>
+<label>Repo description / README text</label><textarea id='system_text' rows='6' placeholder='Next.js + Supabase + Stripe. Users, subscriptions, webhooks...'></textarea>
+<label>Email (optional — only if you want the full report)</label><input id='contact' placeholder='you@company.com' type='email'>
+<button type='submit'>Get my free score</button>
+</form>
+<div id='out'></div>
+<script>
+const out=document.getElementById('out');
+document.getElementById('f').onsubmit=async(e)=>{
+  e.preventDefault();out.innerHTML='<p>Scanning...</p>';
+  const res=await fetch('/audit/api/score',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({name:name.value,system_text:system_text.value,contact:contact.value||null})});
+  const d=await res.json();
+  if(!res.ok){out.innerHTML='<p>Could not score — try again.</p>';return;}
+  out.innerHTML=`<div class='card'><div class='score'>${d.score}<span style="font-size:1rem">/100</span></div>
+  <p><b>Top findings:</b></p><ul>${d.findings_preview.map(x=>`<li>${x}</li>`).join('')}</ul>
+  <p><b>Next:</b></p><ul>${d.next_actions_preview.map(x=>`<li>${x}</li>`).join('')}</ul>
+  <a class='cta' href='${d.upgrade.checkout_url}'>Get the full ${d.upgrade.name} — $${d.upgrade.price_usd}</a></div>`;
+};
+</script>
+<p style='margin-top:2rem;font-size:.85rem;opacity:.7'>Local-first. Your text is analyzed in-memory and never stored publicly. <a href='/p/repo-rescue-saas-audit'>Why we built this →</a></p>
+</body></html>"""
+    return html
     try:
         raw = json.loads(TRUTH_LATEST.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -959,6 +1039,31 @@ async def sitemap_xml(request: Request):
                 rel = ip.relative_to(PRODUCT_ASSETS) if PRODUCT_ASSETS in ip.parents else ip.name
                 image_url = f"{base}/product-assets/{rel}"
             urls.append((f"{base}/p/{p['slug']}", "weekly", image_url))
+
+    # Add growth-site organic pages
+    growth_site = Path('/home/scott/ai-lab/growth-site')
+    if growth_site.exists():
+        for html_file in sorted(growth_site.glob('*.html')):
+            slug = html_file.stem
+            if slug != 'index':
+                urls.append((f"{base}/growth-site/{slug}.html", "weekly", None))
+        # Add growth-site index
+        urls.append((f"{base}/growth-site/", "daily", None))
+        # Add growth-site sitemap.xml and robots.txt
+        urls.append((f"{base}/growth-site/sitemap.xml", "weekly", None))
+        urls.append((f"{base}/growth-site/robots.txt", "weekly", None))
+        # Add insights-rss.xml
+        urls.append((f"{base}/growth-site/insights-rss.xml", "daily", None))
+
+    # Add organic lead-magnet + insights blog (highest-value organic pages)
+    urls.append((f"{base}/audit/", "daily", None))
+    insights_dir = Path(__file__).resolve().parent.parent / "static" / "insights"
+    if insights_dir.exists():
+        for html_file in sorted(insights_dir.glob("*.html")):
+            if html_file.stem != "index":
+                urls.append((f"{base}/insights/{html_file.stem}.html", "weekly", None))
+        urls.append((f"{base}/insights/", "daily", None))
+
     rendered_urls = []
     for loc, frequency, image_url in urls:
         image = (
@@ -2177,7 +2282,7 @@ async def api_contact(request: Request, payload: dict = Body(default={})):
         db.commit()
         db.close()
         msg = f"📩 New contact: {name} <{email}> product={slug} — {needs[:120]}"
-        subprocess.run(['/home/scott/ai-lab/scripts/bin/telegram-alert.sh', msg], stderr=subprocess.DEVNULL)
+        subprocess.run(['/home/scott/.hermes/scripts/telegram-alert.sh', msg], stderr=subprocess.DEVNULL)
     except Exception:
         logger.exception("lead capture failed")
         return {"ok": False, "reason": "temporarily_unavailable"}

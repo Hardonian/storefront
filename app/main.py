@@ -1964,6 +1964,7 @@ footer a{{color:var(--accent);text-decoration:none}}
         )
     html += """<footer>
 AI Automated Systems · <a href="/legal/terms-of-service">Terms</a> · <a href="/legal/privacy-policy">Privacy</a> · <a href="/legal/refund-policy">Refunds</a> · <a href="/legal/consent">Cookies</a>
+ · <a href="https://github.com/Hardonian" target="_blank" rel="noopener">Source · Built by Hardonian</a>
 </footer></div>
 <script>
 // Consent banner (GDPR/PIPEDA): sets hardonia_consent cookie; analytics fire only after accept.

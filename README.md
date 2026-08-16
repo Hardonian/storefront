@@ -81,5 +81,24 @@ curl -s http://127.0.0.1:8020/api/products | head
 - The buyer catalog at `/` and `/p/{slug}` is the real conversion surface — it is
   server-rendered from the same data the sitemap and JSON API expose.
 
-## 🛒 Store
-Self-hosted AI infra, bundles & compute access: [aiautomatedsystems.ca](https://aiautomatedsystems.ca)
+## 🛒 Products
+
+Every product below links to its live buyer page (verified checkout, always current):
+
+- [AI Change Ledger ($29)](https://aiautomatedsystems.ca/p/ai-change-ledger)
+- [AI Lab Health Report ($19)](https://aiautomatedsystems.ca/p/ai-lab-health-report)
+- [AI Portrait Studio ($19)](https://aiautomatedsystems.ca/p/ai-portrait-studio)
+- [ComfyUI Workflow Pack ($29)](https://aiautomatedsystems.ca/p/comfyui-workflow-pack)
+- [HRDraft ($197)](https://aiautomatedsystems.ca/p/hr-draft)
+- [Hardonia Compute API Access ($20)](https://aiautomatedsystems.ca/p/hardonia-compute-api-access)
+- [Hardonia Enterpriser ($497)](https://aiautomatedsystems.ca/p/hardonia-enterpriser)
+- [LedgerDraft ($197)](https://aiautomatedsystems.ca/p/ledger-draft)
+- [Local AI Ops Checklist ($29)](https://aiautomatedsystems.ca/p/local-ai-ops-checklist)
+- [OpsDraft ($197)](https://aiautomatedsystems.ca/p/ops-draft)
+- [Private AI Assurance Retainer ($299)](https://aiautomatedsystems.ca/p/private-ai-assurance-retainer)
+- [Private Inference Access ($9)](https://aiautomatedsystems.ca/p/private-inference-access)
+- [SaaS Repo Rescue Audit ($499)](https://aiautomatedsystems.ca/p/repo-rescue-saas-audit)
+- [Sentinel Note ($297)](https://aiautomatedsystems.ca/p/sentinel-note)
+- [n8n Automation Kit ($39)](https://aiautomatedsystems.ca/p/n8n-automation-kit)
+
+Full catalog + lead capture: [aiautomatedsystems.ca](https://aiautomatedsystems.ca)

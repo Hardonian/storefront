@@ -49,7 +49,11 @@ def init_db(db_path: Path | str = DEFAULT_DB_PATH) -> None:
 def list_products(db_path: Path | str = DEFAULT_DB_PATH, sort: str = "readiness") -> list[dict[str, Any]]:
     """List products with optional sort: 'readiness' (default) or 'bestsellers' (sales_count DESC)."""
     order = "sales_count DESC, name ASC" if sort == "bestsellers" else "readiness_score DESC, name ASC"
-    cols = "slug, name, status, audience, pain, offer, price, checkout_url, gumroad_url, image_path, landing_path, readiness_score, created_at, updated_at, dashboard_url, dashboard_features, stripe_sku"
+    cols = (
+        "slug, name, status, audience, pain, offer, price, checkout_url, gumroad_url, "
+        "image_path, landing_path, readiness_score, created_at, updated_at, "
+        "dashboard_url, dashboard_features, stripe_sku"
+    )
     with get_conn(db_path) as conn:
         # sales_count may not exist in older schemas (test fixtures); add if missing.
         try:

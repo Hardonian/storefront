@@ -110,18 +110,27 @@ def landing_html(row: dict) -> str:
     checkout = (row.get("checkout_url") or "").strip()
     gumroad = (row.get("gumroad_url") or "").strip()
     cta = _cta(sku, checkout, gumroad)
+    style = (
+        "body{font-family:system-ui,Segoe UI,Roboto,sans-serif;"
+        "max-width:760px;margin:0 auto;padding:2rem 1rem;color:#171717;line-height:1.6}"
+        "h1{font-size:2rem;margin-bottom:.3rem} "
+        ".price{font-size:1.5rem;font-weight:700;color:#6d28d9;margin:.5rem 0}"
+        ".badge{display:inline-block;background:#f3e8ff;color:#6d28d9;"
+        "border-radius:999px;padding:.2rem .8rem;font-size:.8rem;margin:.2rem}"
+        ".cta-row{margin:1.5rem 0} "
+        ".cta{display:inline-block;background:#6d28d9;color:#fff;"
+        "border:0;border-radius:.5rem;padding:.9rem 1.6rem;font-size:1.05rem;"
+        "cursor:pointer;text-decoration:none}"
+        ".cta:hover{background:#5b21b6}"
+        "form{display:inline-block} .cards{display:flex;gap:.6rem;flex-wrap:wrap;margin:1rem 0}"
+        ".card{flex:1;min-width:200px;border:1px solid #e5e7eb;"
+        "border-radius:.6rem;padding:1rem}"
+        "footer{margin-top:2rem;font-size:.8rem;color:#6b7280}"
+    )
     return f"""<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>{name} — AI Automated Systems</title>
-<style>body{{font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:760px;margin:0 auto;padding:2rem 1rem;color:#171717;line-height:1.6}}
-h1{{font-size:2rem;margin-bottom:.3rem}} .price{{font-size:1.5rem;font-weight:700;color:#6d28d9;margin:.5rem 0}}
-.badge{{display:inline-block;background:#f3e8ff;color:#6d28d9;border-radius:999px;padding:.2rem .8rem;font-size:.8rem;margin:.2rem}}
-.cta-row{{margin:1.5rem 0}} .cta{{display:inline-block;background:#6d28d9;color:#fff;
-border:0;border-radius:.5rem;padding:.9rem 1.6rem;font-size:1.05rem;cursor:pointer;text-decoration:none}}
-.cta:hover{{background:#5b21b6}}
-form{{display:inline-block}} .cards{{display:flex;gap:.6rem;flex-wrap:wrap;margin:1rem 0}}
-.card{{flex:1;min-width:200px;border:1px solid #e5e7eb;border-radius:.6rem;padding:1rem}}
-footer{{margin-top:2rem;font-size:.8rem;color:#6b7280}}</style></head>
+<style>{style}</style></head>
 <body>
 <h1>{html.escape(name)}</h1>
 <span class=price>{html.escape(price)}</span>

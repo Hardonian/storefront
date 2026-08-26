@@ -1,4 +1,4 @@
-"""Resilient SQLite connection and schema management for Storefront."""
+"""Database connection factory, schema migration, and SQLite pool optimization."""
 
 from __future__ import annotations
 
@@ -12,126 +12,148 @@ from app.core.config import settings
 
 logger = logging.getLogger("storefront.database")
 
-PRODUCTS_DDL = """
+# DDL definitions for Storefront tables
+CREATE_PRODUCTS_TABLE = """
 CREATE TABLE IF NOT EXISTS products (
     slug TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'ready',
+    status TEXT NOT NULL DEFAULT 'draft',
     audience TEXT,
     pain TEXT,
     offer TEXT,
-    price TEXT NOT NULL,
+    price TEXT,
     checkout_url TEXT,
     gumroad_url TEXT,
-    image_path TEXT,
+    readiness_score INTEGER DEFAULT 0,
+    category TEXT DEFAULT 'general',
     landing_path TEXT,
+    image_path TEXT,
     deliverable_path TEXT,
-    readiness_score INTEGER DEFAULT 100,
-    dashboard_url TEXT,
-    dashboard_features TEXT,
-    sales_count INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    stripe_sku TEXT
+    version TEXT DEFAULT '1.0.0',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 """
 
-LEADS_DDL = """
+CREATE_LEADS_TABLE = """
 CREATE TABLE IF NOT EXISTS leads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT NOT NULL,
     product_slug TEXT,
-    source TEXT NOT NULL DEFAULT 'landing',
+    source TEXT DEFAULT 'landing',
     notes TEXT,
-    status TEXT NOT NULL DEFAULT 'new',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    tag TEXT
+    status TEXT DEFAULT 'new',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 """
 
-EVENTS_DDL = """
+CREATE_EVENTS_TABLE = """
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_slug TEXT,
     event_type TEXT NOT NULL,
-    source TEXT NOT NULL DEFAULT 'storefront',
+    source TEXT DEFAULT 'storefront',
     payload_json TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+CREATE_PRIVACY_REQUESTS_TABLE = """
+CREATE TABLE IF NOT EXISTS privacy_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending_verification',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
 
-COMMERCE_EVENTS_DDL = """
-CREATE TABLE IF NOT EXISTS commerce_events (
+CREATE_BANDIT_TRIALS_TABLE = """
+CREATE TABLE IF NOT EXISTS bandit_trials (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    amount_cents INTEGER DEFAULT 0,
-    currency TEXT DEFAULT 'usd',
-    status TEXT DEFAULT 'succeeded',
-    external_id TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    experiment TEXT NOT NULL,
+    variant TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    converted INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_bandit_exp ON bandit_trials(experiment, variant);
+"""
+
+CREATE_DEMAND_SIGNALS_TABLE = """
+CREATE TABLE IF NOT EXISTS demand_signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT DEFAULT 'unclassified',
+    raw_query TEXT NOT NULL,
+    intent_tags TEXT,
+    source TEXT DEFAULT 'api_ask',
+    detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 """
 
-FUNNEL_DDL = """
-CREATE TABLE IF NOT EXISTS funnel_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    stage TEXT NOT NULL CHECK(stage IN (
-        'landing','tool_complete','offer_click','lead_start','validated_lead',
-        'checkout_start','provider_payment','fulfillment'
-    )),
-    classification TEXT NOT NULL CHECK(classification IN (
-        'synthetic','likely_bot','unknown','credible_human'
-    )),
-    classification_reason TEXT NOT NULL,
-    referrer TEXT,
-    campaign TEXT,
-    page TEXT,
-    product_slug TEXT,
-    consent TEXT NOT NULL DEFAULT 'unset',
-    amount_cents INTEGER NOT NULL DEFAULT 0 CHECK(amount_cents >= 0),
-    currency TEXT,
-    provider_verified INTEGER NOT NULL DEFAULT 0 CHECK(provider_verified IN (0,1)),
-    external_event_id TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+CREATE_BUYER_LICENSES_TABLE = """
+CREATE TABLE IF NOT EXISTS buyer_licenses (
+    license_key TEXT PRIMARY KEY,
+    product_slug TEXT NOT NULL,
+    buyer_email TEXT NOT NULL,
+    plan TEXT DEFAULT 'commercial',
+    hardware_fingerprint TEXT DEFAULT 'any',
+    signature TEXT NOT NULL,
+    issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP,
+    is_active INTEGER DEFAULT 1
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_funnel_external_event
-    ON funnel_events(external_event_id, stage)
-    WHERE external_event_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_funnel_stage_class
-    ON funnel_events(stage, classification, created_at);
+"""
+
+CREATE_SYSTEM_ANOMALIES_TABLE = """
+CREATE TABLE IF NOT EXISTS system_anomalies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    anomaly_type TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'warning',
+    description TEXT NOT NULL,
+    metadata_json TEXT,
+    detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved INTEGER DEFAULT 0
+);
+"""
+
+CREATE_BLUEPRINTS_TABLE = """
+CREATE TABLE IF NOT EXISTS blueprints (
+    token TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    workload TEXT NOT NULL,
+    scale TEXT DEFAULT 'medium',
+    compliance TEXT DEFAULT 'standard',
+    blueprint_json TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
-def _ensure_db_directory(db_path: str | Path) -> Path:
-    """Ensure the parent directory for a SQLite database path exists."""
-    p = Path(db_path)
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        logger.warning("Could not create database parent directory %s: %s", p.parent, e)
-    return p
+def get_sqlite_connection(db_path: str | Path) -> sqlite3.Connection:
+    """Create a high-concurrency SQLite connection with WAL mode and generous busy timeout."""
+    target_path = Path(db_path).resolve()
+    target_path.parent.mkdir(parents=True, exist_ok=True)
 
-
-def get_sqlite_connection(db_path: str | Path, timeout: float = 15.0) -> sqlite3.Connection:
-    """Open a SQLite connection with busy timeout and robust pragma setup."""
-    p = _ensure_db_directory(db_path)
-    conn = sqlite3.connect(str(p), timeout=timeout)
-    conn.execute("PRAGMA busy_timeout = 15000")
-    # Only set WAL mode if not in-memory
-    if str(p) != ":memory:" and not str(p).startswith("file::memory:"):
-        try:
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.execute("PRAGMA synchronous = NORMAL")
-        except sqlite3.OperationalError:
-            pass
+    conn = sqlite3.connect(
+        str(target_path),
+        timeout=15.0,  # 15s busy timeout
+        check_same_thread=False,
+    )
     conn.row_factory = sqlite3.Row
+
+    # Performance optimizations
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA busy_timeout=15000;")
+    conn.execute("PRAGMA foreign_keys=ON;")
+
     return conn
 
 
 @contextmanager
 def get_db(db_path: str | Path | None = None) -> Generator[sqlite3.Connection, None, None]:
-    """Yield a managed SQLite connection with automatic commit and rollback."""
-    target_path = db_path or settings.db_path
-    conn = get_sqlite_connection(target_path)
+    """Context manager for SQLite transactions with auto-commit and rollback on error."""
+    path = db_path or settings.db_path
+    conn = get_sqlite_connection(path)
     try:
         yield conn
         conn.commit()
@@ -143,39 +165,43 @@ def get_db(db_path: str | Path | None = None) -> Generator[sqlite3.Connection, N
 
 
 def init_database(db_path: str | Path | None = None) -> None:
-    """Initialize standard tables in the target database."""
-    target_path = db_path or settings.db_path
-    with get_db(target_path) as conn:
-        conn.executescript(PRODUCTS_DDL)
-        conn.executescript(LEADS_DDL)
-        conn.executescript(EVENTS_DDL)
-        conn.executescript(COMMERCE_EVENTS_DDL)
+    """Initialize primary catalog, lead, license, and autonomous learning tables."""
+    path = db_path or settings.db_path
+    with get_db(path) as conn:
+        conn.execute(CREATE_PRODUCTS_TABLE)
+        conn.execute(CREATE_LEADS_TABLE)
+        conn.execute(CREATE_PRIVACY_REQUESTS_TABLE)
+        conn.executescript(CREATE_BANDIT_TRIALS_TABLE)
+        conn.execute(CREATE_DEMAND_SIGNALS_TABLE)
+        conn.execute(CREATE_BUYER_LICENSES_TABLE)
+        conn.execute(CREATE_SYSTEM_ANOMALIES_TABLE)
+        conn.execute(CREATE_BLUEPRINTS_TABLE)
 
 
-def init_analytics_database(analytics_path: str | Path | None = None) -> None:
-    """Initialize telemetry tables in the analytics database."""
-    target_path = analytics_path or settings.effective_analytics_db_path
-    with get_db(target_path) as conn:
-        conn.executescript(EVENTS_DDL)
-        conn.executescript(FUNNEL_DDL)
+def init_analytics_database(db_path: str | Path | None = None) -> None:
+    """Initialize telemetry and funnel tables in the designated analytics SQLite instance."""
+    path = db_path or settings.effective_analytics_db_path
+    with get_db(path) as conn:
+        conn.execute(CREATE_EVENTS_TABLE)
+        from app.funnel_truth import init_funnel_schema
+        init_funnel_schema(path)
 
 
 def init_all_services() -> None:
-    """Initialize all database tables and required filesystem directories at application startup."""
-    try:
-        init_database(settings.db_path)
-    except Exception as e:
-        logger.error("Failed to initialize primary database at %s: %s", settings.db_path, e)
+    """Application startup initialization routine."""
+    logger.info("Initializing Storefront SQLite schemas at %s", settings.db_path)
+    init_database(settings.db_path)
+    if settings.effective_analytics_db_path:
+        init_analytics_database(settings.effective_analytics_db_path)
 
-    effective_analytics = settings.effective_analytics_db_path
-    if effective_analytics:
-        try:
-            init_analytics_database(effective_analytics)
-        except Exception as e:
-            logger.error("Failed to initialize analytics database at %s: %s", effective_analytics, e)
-
-    # Ensure required asset directories exist
-    for dir_path in (settings.landing_dir, settings.legal_dir, settings.static_dir):
+    # Ensure required runtime asset directories exist
+    for dir_path in (
+        settings.bundles_dir,
+        settings.landing_dir,
+        settings.legal_dir,
+        settings.content_drafts_dir,
+        settings.static_dir,
+    ):
         try:
             Path(dir_path).mkdir(parents=True, exist_ok=True)
         except Exception as e:

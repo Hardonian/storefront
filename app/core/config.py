@@ -1,8 +1,4 @@
-"""Core configuration for the Storefront service.
-
-Centralized Pydantic settings, environment fallbacks, brand lookups,
-and authorization helpers.
-"""
+"""Application configuration and typed environment settings using Pydantic v2."""
 
 from __future__ import annotations
 
@@ -15,14 +11,13 @@ from fastapi import Header, HTTPException, Request
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Base directories
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-DEFAULT_TEMPLATES_DIR = str(Path(__file__).resolve().parent.parent / "templates")
-DEFAULT_STATIC_DIR = str(BASE_DIR / "static")
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_TEMPLATES_DIR = str(REPO_ROOT / "app" / "templates")
+DEFAULT_STATIC_DIR = str(REPO_ROOT / "static")
 
 
 class Settings(BaseSettings):
-    """Application settings with environment variable precedence."""
+    """Runtime configuration model loaded from environment variables or .env files."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -30,10 +25,19 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Database paths
+    # Core identification & credentials
+    api_key: str = Field(default_factory=lambda: os.getenv("API_KEY", ""))
+    download_secret: str = Field(
+        default_factory=lambda: os.getenv("DOWNLOAD_SECRET", "storefront_download_hmac_secret")
+    )
+    license_secret: str = Field(
+        default_factory=lambda: os.getenv("LICENSE_SECRET", "storefront_license_signing_secret")
+    )
+
+    # SQLite Database paths
     db_path: str = Field(
         default_factory=lambda: os.getenv(
-            "DB_PATH",
+            "STOREFRONT_DB_PATH",
             str(Path.home() / "ai-lab" / "revenue-os" / "revenue-os.db"),
         )
     )
@@ -41,6 +45,26 @@ class Settings(BaseSettings):
         default_factory=lambda: os.getenv(
             "ANALYTICS_DB_PATH",
             "",
+        )
+    )
+    revenue_os_db_path: str = Field(
+        default_factory=lambda: os.getenv(
+            "REVENUE_OS_DB_PATH",
+            str(Path.home() / "ai-lab" / "revenue-os" / "revenue-os.db"),
+        )
+    )
+
+    # Sovereign Stack & Hermes Connective Tissue
+    ops_nerve_center_path: str = Field(
+        default_factory=lambda: os.getenv(
+            "OPS_NERVE_CENTER_PATH",
+            str(Path.home() / ".hermes" / "scripts" / "ops-nerve-center.py"),
+        )
+    )
+    deploy_all_script: str = Field(
+        default_factory=lambda: os.getenv(
+            "DEPLOY_ALL_SCRIPT",
+            str(Path.home() / "ai-lab" / "scripts" / "bin" / "deploy-all.sh"),
         )
     )
 
@@ -68,15 +92,21 @@ class Settings(BaseSettings):
     bundles_dir: str = Field(
         default_factory=lambda: os.getenv(
             "BUNDLES_DIR",
-            str(Path.home() / "ai-lab" / "store" / "bundles"),
+            str(Path.home() / "ai-lab" / "bundles"),
         )
     )
 
-    # Security & API credentials
-    api_key: str = Field(default_factory=lambda: os.getenv("API_KEY", ""))
-    download_secret: str = Field(
-        default_factory=lambda: os.getenv("STOREFRONT_DOWNLOAD_SECRET", "dev-storefront-secret-key-replace-in-prod")
+    # Feature flags & Experiments
+    flags_path: str = Field(
+        default_factory=lambda: os.getenv(
+            "STOREFRONT_FLAGS_PATH",
+            str(REPO_ROOT / "flags.json"),
+        )
     )
+    bandit_min_trials: int = 50
+    bandit_significance_threshold: float = 0.99
+
+    # SEO & Verification
     indexnow_key: str = Field(default_factory=lambda: os.getenv("INDEXNOW_KEY", ""))
 
     # Server configuration
@@ -91,6 +121,9 @@ class Settings(BaseSettings):
     )
     compute_api_url: str = Field(
         default_factory=lambda: os.getenv("COMPUTE_API_URL", "http://127.0.0.1:8000")
+    )
+    fulfillment_url: str = Field(
+        default_factory=lambda: os.getenv("FULFILLMENT_URL", "http://127.0.0.1:8012")
     )
 
     @property

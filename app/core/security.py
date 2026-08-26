@@ -1,4 +1,4 @@
-"""Security utilities: input sanitization, token signing, path defense."""
+"""Security utilities: input sanitization, token signing, path defense, and air-gapped license generation."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import os
 import re
+import secrets
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -144,3 +145,25 @@ def resolve_download_file(slug: str, expires: str, token: str, bundles_dir: Path
         raise HTTPException(status_code=404, detail="Bundle not found")
 
     return target_path
+
+
+# ── Cryptographic Air-Gapped License Generation ───────────────────────────────
+
+def sign_license_payload(slug: str, email: str, plan: str, secret: str | None = None) -> str:
+    """Sign commercial license parameters with HMAC-SHA256."""
+    sec = secret or settings.license_secret
+    payload = f"HARDONIA-LIC:{slug.upper()}:{email.lower()}:{plan.upper()}"
+    return hmac.new(sec.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()[:24].upper()
+
+
+def generate_license_key(slug: str, email: str, plan: str = "PRO") -> str:
+    """Generate a formatted sovereign license key."""
+    clean_slug = validate_slug(slug).upper().replace("-", "")[:8]
+    sig = sign_license_payload(slug, email, plan)
+    # Format: HK-PRO-SENTINEL-A1B2-C3D4-E5F6
+    return f"HK-{plan.upper()}-{clean_slug}-{sig[:4]}-{sig[4:8]}-{sig[8:12]}-{sig[12:16]}"
+
+
+def generate_blueprint_token() -> str:
+    """Generate secure URL-safe blueprint reference token."""
+    return f"bp_{secrets.token_urlsafe(16)}"

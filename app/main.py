@@ -84,7 +84,10 @@ def _record_event(event: str, page: str | None, product_slug: str | None,
         "traffic_class": traffic_class,
         "src": src,
     }, separators=(",", ":"))
-    conn = _analytics_connection(settings.db_path)
+    # Write analytics events to the dedicated analytics DB when available so
+    # the commerce DB (checkout/purchase data) stays separate from telemetry.
+    target_db = settings.analytics_db_path or settings.db_path
+    conn = _analytics_connection(target_db)
     try:
         conn.execute(
             "INSERT INTO events (product_slug, event_type, source, payload_json) "
@@ -109,6 +112,7 @@ class Settings(BaseSettings):
     port: int = 8020
     rate_limit_per_min: int = 20
     debug: bool = False
+    analytics_db_path: str = "/home/scott/ai-lab/revenue-os/analytics.db"
 
 
 settings = Settings()
@@ -153,6 +157,10 @@ jinja_env = Environment(
 async def lifespan(_: FastAPI):
     store.init_db(settings.db_path)
     _init_analytics(settings.db_path)
+    # Also init the dedicated analytics DB when configured so the events table
+    # exists there (separates commerce/purchase data from telemetry).
+    if settings.analytics_db_path and settings.analytics_db_path != settings.db_path:
+        _init_analytics(settings.analytics_db_path)
     Path(settings.landing_dir).mkdir(parents=True, exist_ok=True)
     Path(settings.legal_dir).mkdir(parents=True, exist_ok=True)
     yield
@@ -1058,6 +1066,38 @@ def _traffic_class(request: Request) -> str:
     if any(marker in ua for marker in bot_markers):
         return "crawler"
     return "returning_browser" if request.cookies.get("aas_sid") else "anonymous_browser"
+
+
+def _classify_and_stage(request: Request, event: str, *, validated_action: bool = False) -> tuple[str, str]:
+    """Bridge storefront request events to the privacy-funnel truth schema.
+
+    The funnel truth schema stores no IP, user-agent, session, or fingerprint.
+    Classification is conservative: a normal browser UA is never treated as human
+    evidence; credible_human requires a validated action or provider-verified outcome.
+    """
+    from app.funnel_truth import classify_request
+    classification, reason = classify_request(
+        user_agent=(request.headers.get("user-agent") or ""),
+        synthetic=False,
+        validated_action=validated_action,
+    )
+    stage = _event_to_stage(event)
+    return classification, stage
+
+
+def _event_to_stage(event: str) -> str:
+    mapping = {
+        "page_view": "landing",
+        "consent_accepted": "landing",
+        "tool_complete": "tool_complete",
+        "offer_click": "offer_click",
+        "lead_start": "lead_start",
+        "validated_lead": "validated_lead",
+        "checkout_start": "checkout_start",
+        "provider_payment": "provider_payment",
+        "fulfillment": "fulfillment",
+    }
+    return mapping.get(event, "unknown")
 
 
 def _public_checkout_url(value: object) -> str:
@@ -2080,16 +2120,43 @@ async def api_products():
 
 @app.post("/api/lead")
 async def api_lead(request: Request, payload: dict = Body(default={})):
-    """Capture a lead (exit-intent, contact form, waitlist). Fail-soft."""
+    """Capture a lead and record privacy-bounded funnel evidence. Fail-soft."""
     import sqlite3 as _sql
-    email = _validate_email((payload.get("email") or "").strip())
+    from app.funnel_truth import classify_request, record_funnel_event
+
     _check_post_rate_limit(client_ip(request))
+    email = _validate_email((payload.get("email") or "").strip())
     slug = str(payload.get("product_slug") or "")[:120]
     source = str(payload.get("source") or "unknown")[:80]
     referrer = str(request.headers.get("referer") or payload.get("referrer") or "")[:255]
     utm_source = str(request.query_params.get("utm_source") or payload.get("utm_source") or "")[:80]
     utm_medium = str(request.query_params.get("utm_medium") or payload.get("utm_medium") or "")[:80]
     utm_campaign = str(request.query_params.get("utm_campaign") or payload.get("utm_campaign") or "")[:80]
+    consent = request.cookies.get("hardonia_consent") or "unset"
+    classification, reason = classify_request(
+        user_agent=request.headers.get("user-agent") or "",
+        validated_action=False,
+    )
+    honeypot_hit = bool(str(payload.get("website") or "").strip())
+    if honeypot_hit:
+        classification, reason = "likely_bot", "honeypot"
+
+    # Record the attempt before the honeypot gate. Bot attempts are evidence of
+    # bot traffic, but never become leads or credible-human conversions.
+    record_funnel_event(
+        settings.analytics_db_path,
+        stage="lead_start",
+        classification=classification,
+        classification_reason=reason,
+        referrer=referrer or None,
+        campaign=utm_campaign or None,
+        page=request.url.path,
+        product=slug or None,
+        consent=consent,
+    )
+    if honeypot_hit:
+        return {"ok": True}
+
     try:
         db = _sql.connect(settings.db_path)
         db.execute("""CREATE TABLE IF NOT EXISTS leads(
@@ -2102,6 +2169,21 @@ async def api_lead(request: Request, payload: dict = Body(default={})):
         )
         db.commit()
         db.close()
+        validated_class, validated_reason = classify_request(
+            user_agent=request.headers.get("user-agent") or "",
+            validated_action=True,
+        )
+        record_funnel_event(
+            settings.analytics_db_path,
+            stage="validated_lead",
+            classification=validated_class,
+            classification_reason=validated_reason,
+            referrer=referrer or None,
+            campaign=utm_campaign or None,
+            page=request.url.path,
+            product=slug or None,
+            consent=consent,
+        )
     except Exception:
         logger.exception("lead capture failed")
         return {"ok": False, "reason": "temporarily_unavailable"}
@@ -2151,7 +2233,7 @@ async def analytics_event(request: Request):
     return {"ok": True}
 
 
-@app.post("/api/contact")
+@ app.post("/api/contact")
 async def api_contact(request: Request, payload: dict = Body(default={})):
     """Enterprise/contact intake. Stores lead + fires Telegram alert. Fail-soft."""
     import sqlite3 as _sql
@@ -2177,7 +2259,25 @@ async def api_contact(request: Request, payload: dict = Body(default={})):
         db.commit()
         db.close()
         msg = f"📩 New contact: {name} <{email}> product={slug} — {needs[:120]}"
-        subprocess.run(['/home/scott/ai-lab/scripts/bin/telegram-alert.sh', msg], stderr=subprocess.DEVNULL)
+        subprocess.run(['/home/scott/.hermes/scripts/telegram-alert.sh', msg], stderr=subprocess.DEVNULL)
+        # Record into privacy-funnel truth schema (contact intent = lead_start).
+        if settings.analytics_db_path:
+            try:
+                from app.funnel_truth import record_funnel_event
+                classification, stage = _classify_and_stage(request, "lead_start", validated_action=True)
+                record_funnel_event(
+                    settings.analytics_db_path,
+                    stage=stage,
+                    classification=classification,
+                    classification_reason="validated_action",
+                    referrer=referrer or None,
+                    campaign=utm_campaign or None,
+                    page=request.url.path,
+                    product=slug or None,
+                    consent="unset",
+                )
+            except Exception:
+                logging.getLogger("storefront.funnel").exception("funnel_truth recording failed")
     except Exception:
         logger.exception("lead capture failed")
         return {"ok": False, "reason": "temporarily_unavailable"}
@@ -2326,20 +2426,31 @@ ul{padding-left:1.2rem} li{margin:.3rem 0}
     return html
 @app.get("/metrics/funnel", response_class=PlainTextResponse)
 async def funnel_metrics(_: None = Depends(require_operator)):
-    """Conversion funnel from local telemetry plus verified commerce events."""
+    """Conversion funnel from the privacy-funnel truth schema.
+
+    The funnel truth schema stores no IP, user-agent, session, or fingerprint.
+    Commercial metrics include only credible_human and unknown classifications;
+    synthetic and likely_bot rows are excluded from revenue counts."""
     import json as _json
     import sqlite3 as _sql
-    db = _sql.connect(settings.db_path)
-    events = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-    leads = db.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
-    buy_clicks = db.execute("SELECT COUNT(*) FROM events WHERE event_type='buy_click'").fetchone()[0]
-    checkout_redirects = db.execute("SELECT COUNT(*) FROM events WHERE event_type='checkout_redirect'").fetchone()[0]
-    commerce = db.execute("SELECT COUNT(*), COALESCE(SUM(amount_cents),0) FROM commerce_events WHERE status IN ('paid','completed','fulfilled')").fetchone()
+    db_path = settings.analytics_db_path or settings.db_path
+    db = _sql.connect(db_path)
+    try:
+        from app.funnel_truth import funnel_summary
+        summary = funnel_summary(db_path)
+    except Exception:
+        db.close()
+        return _json.dumps({"error": "funnel_summary unavailable", "ts": datetime.datetime.now(datetime.UTC).isoformat()})
+    data = {
+        "schema": "privacy-funnel/v1",
+        "commercial_metrics": summary.get("commercial_metrics", {}),
+        "commercial_stage_counts": summary.get("commercial_stage_counts", {}),
+        "classification_counts": summary.get("classification_counts", {}),
+        "commercial_included_classes": summary.get("commercial_included_classes", []),
+        "commercial_excluded_classes": summary.get("commercial_excluded_classes", []),
+        "ts": datetime.datetime.now(datetime.UTC).isoformat(),
+    }
     db.close()
-    data = {"events": events, "leads": leads, "buy_clicks": buy_clicks,
-            "checkout_redirects": checkout_redirects, "verified_purchases": commerce[0],
-            "verified_revenue_cents": commerce[1], "truth_source": "commerce_events",
-            "ts": datetime.datetime.now(datetime.UTC).isoformat()}
     return _json.dumps(data)
 
 
@@ -2562,7 +2673,8 @@ footer a{{color:var(--accent)}}
 async def track_event(payload: dict = Body(default={}), request: Request = None):
     """Local-first analytics ingestion. Gated by consent cookie (non-essential).
     Essential store events are always recorded; marketing/analytics events only
-    when the visitor accepted non-essential analytics via the consent banner."""
+    when the visitor accepted non-essential analytics via the consent banner.
+    Also records privacy-funnel-truth events (no IP, UA, session, or fingerprint)."""
     consent = (request.cookies.get("hardonia_consent") if request else None)
     event = payload.get("event") if isinstance(payload, dict) else None
     # Only suppress non-essential analytics events when consent was explicitly declined.
@@ -2576,6 +2688,24 @@ async def track_event(payload: dict = Body(default={}), request: Request = None)
         referrer=request.headers.get("referer") if request else None,
         traffic_class=_traffic_class(request) if request else "unknown",
     )
+    # Record into the privacy-funnel truth schema (separate analytics DB).
+    if request and settings.analytics_db_path:
+        try:
+            from app.funnel_truth import record_funnel_event
+            classification, stage = _classify_and_stage(request, event)
+            record_funnel_event(
+                settings.analytics_db_path,
+                stage=stage,
+                classification=classification,
+                classification_reason="request_classified",
+                referrer=request.headers.get("referer") if request else None,
+                campaign=payload.get("utm_campaign"),
+                page=payload.get("page"),
+                product=payload.get("slug"),
+                consent=consent or "unset",
+            )
+        except Exception:
+            logging.getLogger("storefront.funnel").exception("funnel_truth recording failed")
     return {"status": "ok"}
 
 
@@ -2795,9 +2925,24 @@ async def create_lead(payload: LeadCreate, request: Request):
         "lead", page=request.url.path, product_slug=payload.product_slug,
         checkout_url=None, session_id=None, referrer=request.headers.get("referer"),
     )
-    # If this is a free-trial signup and a starter bundle exists, issue a
-    # short-lived signed download URL so the lead gets instant free value
-    # (legit free delivery; no paywall bypass — token is signed + expiring).
+    # Record into privacy-funnel truth schema.
+    if settings.analytics_db_path:
+        try:
+            from app.funnel_truth import record_funnel_event
+            classification, stage = _classify_and_stage(request, "lead_start")
+            record_funnel_event(
+                settings.analytics_db_path,
+                stage=stage,
+                classification=classification,
+                classification_reason="request_classified",
+                referrer=request.headers.get("referer"),
+                campaign=None,
+                page=request.url.path,
+                product=payload.product_slug,
+                consent="unset",
+            )
+        except Exception:
+            logging.getLogger("storefront.funnel").exception("funnel_truth recording failed")
     resp = {"status": "ok", "email": email}
     if payload.source == "free_trial" and payload.product_slug:
         bundle = Path("/home/scott/ai-lab/store/bundles") / f"{payload.product_slug}.zip"
@@ -2823,6 +2968,24 @@ async def subscribe(payload: SubscribeCreate, request: Request):
         "subscribe", page=request.url.path, product_slug=None,
         checkout_url=None, session_id=None, referrer=request.headers.get("referer"),
     )
+    # Record into privacy-funnel truth schema.
+    if settings.analytics_db_path:
+        try:
+            from app.funnel_truth import record_funnel_event
+            classification, stage = _classify_and_stage(request, "lead_start")
+            record_funnel_event(
+                settings.analytics_db_path,
+                stage=stage,
+                classification=classification,
+                classification_reason="request_classified",
+                referrer=request.headers.get("referer"),
+                campaign=None,
+                page=request.url.path,
+                product=None,
+                consent="unset",
+            )
+        except Exception:
+            logging.getLogger("storefront.funnel").exception("funnel_truth recording failed")
     return {"status": "ok", "email": email, "tag": payload.tag}
 
 

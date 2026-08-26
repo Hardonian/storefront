@@ -35,6 +35,11 @@ __pycache__/
 *.pyc
 uv.lock
 *.egg-info/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
 
 # Cleanup additions
 .turbo

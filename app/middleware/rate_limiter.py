@@ -4,11 +4,8 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict, deque
-from typing import ClassVar
 
 from fastapi import HTTPException, Request
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
 
 from app.core.config import settings
 

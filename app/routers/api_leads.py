@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from app import store
@@ -21,7 +20,7 @@ from app.funnel_truth import (
     CLASS_UNKNOWN,
     record_funnel_event,
 )
-from app.middleware.rate_limiter import check_rate_limit, get_client_ip
+from app.middleware.rate_limiter import check_rate_limit
 from app.services.analytics_service import record_event
 
 router = APIRouter(tags=["Leads & Subscriptions"])

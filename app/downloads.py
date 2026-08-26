@@ -5,11 +5,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import HTTPException
-
 from app.core.config import settings
 from app.core.security import (
     build_download_url as _core_build_download_url,
+)
+from app.core.security import (
     resolve_download_file,
     sign_download_token,
     verify_download_token,

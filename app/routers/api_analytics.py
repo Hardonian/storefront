@@ -3,22 +3,18 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi import APIRouter, Body, Depends, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from app import flags as flag_engine
 from app.core.config import require_operator, settings
 from app.funnel_truth import (
-    CLASS_LIKELY_BOT,
-    CLASS_SYNTHETIC,
-    CLASS_UNKNOWN,
     classify_request,
     funnel_summary,
     record_funnel_event,
 )
-from app.middleware.request_context import get_session_id, get_traffic_class
+from app.middleware.request_context import get_session_id
 from app.services.analytics_service import get_analytics_summary, record_event
 
 router = APIRouter(tags=["Analytics & Truth"])

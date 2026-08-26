@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import os
 import re
 import secrets
 import time
@@ -122,7 +121,13 @@ def build_download_url(slug: str, ttl_seconds: int = 86400) -> str:
     return f"/download/{slug}?expires={expires_at}&token={token}"
 
 
-def resolve_download_file(slug: str, expires: str, token: str, bundles_dir: Path | str | None = None) -> Path:
+def resolve_download_file(
+    slug: str,
+    expires: str,
+    token: str,
+    bundles_dir: Path | str | None = None,
+    secret: str | None = None,
+) -> Path:
     """Safely verify token and resolve artifact path with strict path traversal containment."""
     clean_slug = validate_slug(slug)
     try:
@@ -130,7 +135,7 @@ def resolve_download_file(slug: str, expires: str, token: str, bundles_dir: Path
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Invalid or expired download link") from None
 
-    if not verify_download_token(clean_slug, expires_at, token):
+    if not verify_download_token(clean_slug, expires_at, token, secret=secret):
         raise HTTPException(status_code=403, detail="Invalid or expired download link")
 
     base = Path(bundles_dir or settings.bundles_dir).resolve()

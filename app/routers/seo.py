@@ -43,7 +43,7 @@ async def sitemap_xml(request: Request):
         f"<url><loc>{site_base}/proof-score</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>",
         f"<url><loc>{site_base}/blog</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>",
         f"<url><loc>{site_base}/status</loc><changefreq>daily</changefreq><priority>0.6</priority></url>",
-        f"<url><loc>https://aiautomatedsystems.ca/private-ai-operations</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>",
+        "<url><loc>https://aiautomatedsystems.ca/private-ai-operations</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>",
     ]
 
     for p in products:

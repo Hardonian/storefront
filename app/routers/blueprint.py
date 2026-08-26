@@ -5,10 +5,9 @@ from __future__ import annotations
 import html as _html
 import json
 import logging
-from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from app import store

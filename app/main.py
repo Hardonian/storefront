@@ -8,41 +8,39 @@ Run:
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app import flags as flag_engine
-from app import store
-from app.core.config import Settings, public_brand, require_operator, settings
+from app import flags as flag_engine  # noqa: F401
+from app import store  # noqa: F401
+from app.core.config import Settings, public_brand, require_operator, settings  # noqa: F401
 from app.core.database import (
-    get_db,
+    get_db,  # noqa: F401
     get_sqlite_connection,
     init_all_services,
     init_analytics_database as _init_analytics_db,
-    init_database as _init_db,
+    init_database as _init_db,  # noqa: F401
 )
 from app.core.security import (
-    build_download_url,
-    resolve_download_file as resolve_download,
-    safe_external_url as _safe_external_url,
-    validate_email_address as _validate_email,
-    validate_slug,
+    build_download_url,  # noqa: F401
+    resolve_download_file as resolve_download,  # noqa: F401
+    safe_external_url as _safe_external_url,  # noqa: F401
+    validate_email_address as _validate_email,  # noqa: F401
+    validate_slug,  # noqa: F401
 )
-from app.core.templates import jinja_env
+from app.core.templates import jinja_env  # noqa: F401
 from app.metrics import PrometheusMiddleware
 from app.middleware.cache_control import CacheControlMiddleware
 from app.middleware.cors_and_limits import PayloadLimitAndCORSMiddleware
-from app.middleware.rate_limiter import check_rate_limit, get_client_ip as client_ip
+from app.middleware.rate_limiter import check_rate_limit, get_client_ip as client_ip  # noqa: F401
 from app.middleware.request_context import (
     RequestContextMiddleware,
-    get_session_id as _session_id,
-    get_traffic_class as _traffic_class,
+    get_session_id as _session_id,  # noqa: F401
+    get_traffic_class as _traffic_class,  # noqa: F401
 )
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.observability import setup_observability
@@ -62,9 +60,9 @@ from app.routers import (
     status,
     tools,
 )
-from app.routers.api_leads import LeadCreate, SubscribeCreate
-from app.routers.status import _STATUS_CACHE, _collect_stack_status
-from app.services.analytics_service import record_event as _record_event
+from app.routers.api_leads import LeadCreate, SubscribeCreate  # noqa: F401
+from app.routers.status import _STATUS_CACHE, _collect_stack_status  # noqa: F401
+from app.services.analytics_service import record_event as _record_event  # noqa: F401
 
 logger = logging.getLogger("storefront")
 

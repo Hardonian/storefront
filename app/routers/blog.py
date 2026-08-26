@@ -5,7 +5,6 @@ from __future__ import annotations
 import html as _html
 import json
 import logging
-import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Response

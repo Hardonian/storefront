@@ -5,8 +5,6 @@ from __future__ import annotations
 import html as _html
 import json
 import logging
-from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse

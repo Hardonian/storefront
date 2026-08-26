@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Seed sample products into storefront database for local development and testing."""
 
-import os
 import sys
 from pathlib import Path
 

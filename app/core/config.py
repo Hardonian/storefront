@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import secrets
 from pathlib import Path
-from typing import Any
 
 from fastapi import Header, HTTPException, Request
 from pydantic import Field

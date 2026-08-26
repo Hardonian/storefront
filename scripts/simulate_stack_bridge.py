@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Simulate and verify sovereign stack bridge connectivity and telemetry feeds."""
 
-import json
-import os
 import sys
 from pathlib import Path
 
@@ -17,7 +15,6 @@ from app.services.stack_bridge import (
     discover_bundle_manifests,
     get_live_fleet_telemetry,
     get_live_gpu_capacity,
-    sync_revenue_os_catalog,
 )
 
 

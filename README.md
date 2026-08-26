@@ -1,6 +1,6 @@
 # Sovereign Storefront & Platform Evidence Console
 
-[![Test Suite](https://img.shields.io/badge/pytest-71%20passed%20%7C%20100%25-success)](tests/)
+[![Test Suite](https://img.shields.io/badge/pytest-105%20passed%20%7C%20100%25-success)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](pyproject.toml)
 [![Architecture](https://img.shields.io/badge/architecture-Domain--Driven%20Modular-teal)](app/)
 [![Autonomous Learning](https://img.shields.io/badge/learning-Bayesian%20Thompson%20Bandit-orange)](app/services/bandit_service.py)

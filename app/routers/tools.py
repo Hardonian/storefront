@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import html as _html
 import re
-from typing import Any
 
-from fastapi import APIRouter, Body, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
-from app.core.config import public_brand, settings
+from app.core.config import public_brand
 
 router = APIRouter(tags=["Interactive Tools"])
 

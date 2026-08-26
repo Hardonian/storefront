@@ -8,7 +8,6 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.core.config import settings
 from app.core.security import validate_slug
-from app.services.product_service import get_product, list_products
 
 router = APIRouter(prefix="/api/products", tags=["Products API"])
 

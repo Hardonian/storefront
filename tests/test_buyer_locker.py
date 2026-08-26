@@ -1,12 +1,11 @@
 """Tests for Buyer Digital Locker and Cryptographic Air-Gapped Licensing."""
 
-import json
 
 from fastapi.testclient import TestClient
 
 from app.core.database import init_database
 from app.main import app
-from app.services.license_service import get_buyer_entitlements, issue_buyer_license, verify_license_offline
+from app.services.license_service import issue_buyer_license, verify_license_offline
 
 client = TestClient(app)
 

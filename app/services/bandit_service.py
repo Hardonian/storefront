@@ -103,9 +103,9 @@ def record_conversion(experiment: str, session_id: str, db_path: str | None = No
 def calculate_significance(stats: dict[str, dict[str, Any]], num_simulations: int = 1000) -> dict[str, float]:
     """Calculate probability of each variant being the true optimal using Monte Carlo sampling."""
     if len(stats) < 2:
-        return {k: 1.0 for k in stats}
+        return dict.fromkeys(stats, 1.0)
 
-    wins: dict[str, int] = {k: 0 for k in stats}
+    wins: dict[str, int] = dict.fromkeys(stats, 0)
     variants = list(stats.keys())
 
     for _ in range(num_simulations):

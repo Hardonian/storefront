@@ -1,8 +1,7 @@
 """Tests for autonomous platform anomaly detector."""
 
-import sqlite3
 
-from app.core.database import init_analytics_database, init_database
+from app.core.database import init_database
 from app.funnel_truth import CLASS_UNKNOWN, init_funnel_schema, record_funnel_event
 from app.services.anomaly_detector import get_active_anomalies, inspect_funnel_health, record_anomaly
 
@@ -32,7 +31,7 @@ def test_funnel_checkout_stall_detection(tmp_path):
     init_funnel_schema(db)
 
     # 25 checkout starts with 0 payments -> triggers stall anomaly
-    for i in range(25):
+    for _i in range(25):
         record_funnel_event(
             db,
             stage="checkout_start",

@@ -6,12 +6,12 @@ import datetime
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import APIRouter, Depends, Header, Response
+from fastapi.responses import HTMLResponse
 from prometheus_client import generate_latest
 
 from app.core.config import require_operator, settings
-from app.services.anomaly_detector import get_active_anomalies, inspect_funnel_health
+from app.services.anomaly_detector import get_active_anomalies
 from app.services.demand_intelligence import get_demand_insights
 from app.services.product_service import list_products
 from app.services.stack_bridge import get_live_fleet_telemetry, get_live_gpu_capacity

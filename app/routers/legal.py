@@ -6,7 +6,7 @@ import html as _html
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from app.core.config import public_brand, settings

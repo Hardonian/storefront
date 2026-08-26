@@ -8,29 +8,41 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.core.config import settings
 from app.core.security import validate_slug
-from app.services.product_service import get_product, list_products, public_product
+from app.services.product_service import get_product, list_products
 
 router = APIRouter(prefix="/api/products", tags=["Products API"])
 
 
-@router.get("", response_model=list[dict[str, Any]])
+def _clean_product_for_api(p: dict[str, Any]) -> dict[str, Any]:
+    """Strip internal filesystem paths to prevent information leaks."""
+    cleaned = dict(p)
+    cleaned.pop("landing_path", None)
+    cleaned.pop("image_path", None)
+    cleaned.pop("deliverable_path", None)
+    return cleaned
+
+
+@router.get("")
 async def api_list_products(
     category: str | None = None,
     sort: str = Query("readiness", pattern="^(readiness|bestsellers)$"),
 ):
-    """Retrieve list of products with optional category filtering and sorting."""
-    products = list_products(settings.db_path, sort=sort)
+    """Retrieve JSON list of products with sanitized fields."""
+    from app import store
+    products = store.list_products(settings.db_path, sort=sort)
+    cleaned = [_clean_product_for_api(p) for p in products]
     if category:
         clean_cat = category.strip().lower()
-        products = [p for p in products if p.get("category", "").lower() == clean_cat]
-    return [public_product(p) for p in products]
+        cleaned = [p for p in cleaned if p.get("category", "").lower() == clean_cat]
+    return {"products": cleaned, "count": len(cleaned)}
 
 
-@router.get("/{slug}", response_model=dict[str, Any])
+@router.get("/{slug}")
 async def api_get_product(slug: str):
-    """Retrieve deep product metadata by slug."""
+    """Retrieve single product metadata."""
+    from app import store
     clean_slug = validate_slug(slug)
-    product = get_product(clean_slug, settings.db_path)
+    product = store.get_product(clean_slug, settings.db_path)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    return public_product(product)
+    return _clean_product_for_api(product)

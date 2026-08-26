@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-DEFAULT_DB_PATH = Path("/home/scott/ai-lab/revenue-os/revenue-os.db")
+from app.core.config import settings
 
 LEADS_DDL = """
 CREATE TABLE IF NOT EXISTS leads (
@@ -24,9 +24,15 @@ CREATE TABLE IF NOT EXISTS leads (
 
 
 @contextmanager
-def get_conn(db_path: Path | str = DEFAULT_DB_PATH):
+def get_conn(db_path: Path | str | None = None):
     """Yield a sqlite3 connection with row factory; commit on success."""
-    conn = sqlite3.connect(str(db_path))
+    target_path = Path(db_path or settings.db_path)
+    try:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    conn = sqlite3.connect(str(target_path), timeout=15.0)
+    conn.execute("PRAGMA busy_timeout = 15000")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -38,7 +44,7 @@ def get_conn(db_path: Path | str = DEFAULT_DB_PATH):
         conn.close()
 
 
-def init_db(db_path: Path | str = DEFAULT_DB_PATH) -> None:
+def init_db(db_path: Path | str | None = None) -> None:
     """Create the leads table if it doesn't exist."""
     with get_conn(db_path) as conn:
         conn.execute(LEADS_DDL)
@@ -46,44 +52,16 @@ def init_db(db_path: Path | str = DEFAULT_DB_PATH) -> None:
 
 # ── Products ──────────────────────────────────────────────────────────────────
 
-def list_products(db_path: Path | str = DEFAULT_DB_PATH, sort: str = "readiness") -> list[dict[str, Any]]:
+def list_products(db_path: Path | str | None = None, sort: str = "readiness") -> list[dict[str, Any]]:
     """List products with optional sort: 'readiness' (default) or 'bestsellers' (sales_count DESC)."""
-    order = "sales_count DESC, name ASC" if sort == "bestsellers" else "readiness_score DESC, name ASC"
-    cols = (
-        "slug, name, status, audience, pain, offer, price, checkout_url, gumroad_url, "
-        "image_path, landing_path, readiness_score, created_at, updated_at, "
-        "dashboard_url, dashboard_features, stripe_sku"
-    )
-    with get_conn(db_path) as conn:
-        # sales_count may not exist in older schemas (test fixtures); add if missing.
-        try:
-            conn.execute("ALTER TABLE products ADD COLUMN sales_count INTEGER NOT NULL DEFAULT 0")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass
-        try:
-            rows = conn.execute(
-                f"SELECT {cols}, sales_count FROM products ORDER BY {order}"
-            ).fetchall()
-        except sqlite3.OperationalError:
-            # Fallback: no sales_count column
-            rows = conn.execute(
-                f"SELECT {cols} FROM products ORDER BY {order}"
-            ).fetchall()
-    return [dict(r) for r in rows]
+    from app.services.product_service import list_products as _service_list_products
+    return _service_list_products(db_path=db_path, sort=sort)
 
 
-def get_product(slug: str, db_path: Path | str = DEFAULT_DB_PATH) -> dict[str, Any] | None:
-    with get_conn(db_path) as conn:
-        row = conn.execute(
-            "SELECT slug, name, status, audience, pain, offer, price, "
-            "checkout_url, gumroad_url, image_path, landing_path, "
-            "deliverable_path, readiness_score, "
-            "dashboard_url, dashboard_features, "
-            "created_at, updated_at, stripe_sku FROM products WHERE slug = ?",
-            (slug,),
-        ).fetchone()
-    return dict(row) if row else None
+def get_product(slug: str, db_path: Path | str | None = None) -> dict[str, Any] | None:
+    """Get single product by slug."""
+    from app.services.product_service import get_product as _service_get_product
+    return _service_get_product(slug=slug, db_path=db_path)
 
 
 # ── Leads ─────────────────────────────────────────────────────────────────────
@@ -94,9 +72,10 @@ def create_lead(
     source: str,
     notes: str | None = None,
     tag: str | None = None,
-    db_path: Path | str = DEFAULT_DB_PATH,
+    db_path: Path | str | None = None,
 ) -> dict[str, Any]:
     with get_conn(db_path) as conn:
+        conn.execute(LEADS_DDL)
         cur = conn.execute(
             "INSERT INTO leads (email, product_slug, source, notes, tag, status) "
             "VALUES (?, ?, ?, ?, ?, 'new')",
@@ -108,8 +87,9 @@ def create_lead(
     return dict(row)
 
 
-def list_leads(db_path: Path | str = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
+def list_leads(db_path: Path | str | None = None) -> list[dict[str, Any]]:
     with get_conn(db_path) as conn:
+        conn.execute(LEADS_DDL)
         rows = conn.execute(
             "SELECT * FROM leads ORDER BY created_at DESC"
         ).fetchall()

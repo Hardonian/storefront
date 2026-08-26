@@ -1,23 +1,30 @@
 import os
 import sqlite3
+import tempfile
 from pathlib import Path
 
 # Tests must not depend on the operator's private filesystem or production DB.
-_TEST_DB = Path(os.getenv("STOREFRONT_TEST_DB", "/tmp/storefront-test.db"))
-_TEST_FLAGS = Path(os.getenv("STOREFRONT_TEST_FLAGS", "/tmp/storefront-flags.json"))
-_TEST_LEGAL = Path(os.getenv("STOREFRONT_TEST_LEGAL", "/tmp/storefront-legal"))
+_TMP = Path(tempfile.gettempdir())
+_TEST_DB = Path(os.getenv("STOREFRONT_TEST_DB", str(_TMP / "storefront-test.db")))
+_TEST_FLAGS = Path(os.getenv("STOREFRONT_TEST_FLAGS", str(_TMP / "storefront-flags.json")))
+_TEST_LEGAL = Path(os.getenv("STOREFRONT_TEST_LEGAL", str(_TMP / "storefront-legal")))
+
 _TEST_DB.unlink(missing_ok=True)
 _TEST_FLAGS.unlink(missing_ok=True)
 _TEST_LEGAL.mkdir(parents=True, exist_ok=True)
 for _doc in ("terms-of-service", "privacy-policy", "refund-policy", "consent"):
     (_TEST_LEGAL / f"{_doc}.md").write_text(f"# {_doc}\n\nTest fixture only.", encoding="utf-8")
+
 os.environ["STOREFRONT_DOWNLOAD_SECRET"] = "test-download-secret-not-for-prod"
 os.environ["DB_PATH"] = str(_TEST_DB)
+os.environ["ANALYTICS_DB_PATH"] = str(_TEST_DB)
 os.environ["STOREFRONT_FLAGS_PATH"] = str(_TEST_FLAGS)
 os.environ["LEGAL_DIR"] = str(_TEST_LEGAL)
+
 # Hermetic operator API key for authed surfaces (/api/flags, /api/analytics, ...).
 # Env vars take precedence over the repo .env in pydantic-settings.
 os.environ["API_KEY"] = "test-operator-key-not-for-prod"
+
 # Load INDEXNOW_KEY from the gitignored .env if present, otherwise fall back to
 # a deterministic hermetic CI key. Also materialize the static key file the app
 # serves, so the test never depends on the operator's real .env or static dir.

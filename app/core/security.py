@@ -27,6 +27,14 @@ _ALLOWED_LEGAL_DOCS = {
     "legal",
 }
 
+_ALLOWED_CHECKOUT_HOSTS = {
+    "buy.stripe.com",
+    "shop.gumroad.com",
+    "gumroad.com",
+    "aiautomatedsystems.ca",
+    "hardonia.store",
+}
+
 
 def validate_slug(slug: str) -> str:
     """Validate a resource slug to prevent path traversal and injection."""
@@ -41,7 +49,6 @@ def validate_doc_name(doc: str) -> str:
     cleaned = (doc or "").strip().lower().replace(".md", "")
     if cleaned not in _ALLOWED_LEGAL_DOCS:
         raise HTTPException(status_code=404, detail="Document not found")
-    # Normalize aliases to canonical document names
     aliases = {
         "terms": "terms-of-service",
         "privacy": "privacy-policy",
@@ -54,21 +61,41 @@ def validate_doc_name(doc: str) -> str:
 def validate_email_address(email: str) -> str:
     """Validate and normalize email addresses. Fail closed on malformed input."""
     clean = (email or "").strip().lower()
-    if not clean or len(clean) > 254:
-        raise HTTPException(status_code=422, detail="Invalid email address")
-    if not _EMAIL_REGEX.match(clean):
+    if not clean or len(clean) > 254 or not _EMAIL_REGEX.match(clean):
         raise HTTPException(status_code=422, detail="Invalid email address")
     return clean
 
 
-def safe_external_url(url: str | None) -> str | None:
-    """Validate that an external checkout/partner URL uses HTTPS."""
+def safe_external_url(url: str | None) -> str:
+    """Validate that an external checkout URL is safe and strictly allowlisted."""
     if not url:
-        return None
+        return ""
     url = url.strip()
-    parsed = urlparse(url)
-    if parsed.scheme not in ("https", "http"):
-        return None
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return ""
+
+    if parsed.scheme != "https":
+        return ""
+
+    # Reject userinfo (e.g. user@host)
+    if parsed.username or parsed.password:
+        return ""
+
+    # Reject non-standard ports
+    if parsed.port not in (None, 443):
+        return ""
+
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in _ALLOWED_CHECKOUT_HOSTS:
+        return ""
+
+    # Special handling for internal host paths
+    if hostname in ("aiautomatedsystems.ca", "hardonia.store"):
+        if parsed.path != "/audit/":
+            return ""
+
     return url
 
 
@@ -100,7 +127,7 @@ def resolve_download_file(slug: str, expires: str, token: str, bundles_dir: Path
     try:
         expires_at = int(expires)
     except (TypeError, ValueError):
-        raise HTTPException(status_code=403, detail="Invalid or expired download link") from None
+        raise HTTPException(status_code=400, detail="Invalid or expired download link") from None
 
     if not verify_download_token(clean_slug, expires_at, token):
         raise HTTPException(status_code=403, detail="Invalid or expired download link")
@@ -108,7 +135,6 @@ def resolve_download_file(slug: str, expires: str, token: str, bundles_dir: Path
     base = Path(bundles_dir or settings.bundles_dir).resolve()
     target_path = (base / f"{clean_slug}.zip").resolve()
 
-    # Containment check: prevent escaping base bundle directory
     try:
         target_path.relative_to(base)
     except ValueError:

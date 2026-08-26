@@ -11,16 +11,22 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app import flags as flag_engine
 from app import store
 from app.core.config import Settings, public_brand, require_operator, settings
-from app.core.database import get_db, get_sqlite_connection, init_all_services
+from app.core.database import (
+    get_db,
+    get_sqlite_connection,
+    init_all_services,
+    init_analytics_database as _init_analytics_db,
+    init_database as _init_db,
+)
 from app.core.security import (
     build_download_url,
     resolve_download_file as resolve_download,
@@ -31,6 +37,7 @@ from app.core.security import (
 from app.core.templates import jinja_env
 from app.metrics import PrometheusMiddleware
 from app.middleware.cache_control import CacheControlMiddleware
+from app.middleware.cors_and_limits import PayloadLimitAndCORSMiddleware
 from app.middleware.rate_limiter import check_rate_limit, get_client_ip as client_ip
 from app.middleware.request_context import (
     RequestContextMiddleware,
@@ -54,16 +61,22 @@ from app.routers import (
     status,
 )
 from app.routers.api_leads import LeadCreate, SubscribeCreate
+from app.routers.status import _STATUS_CACHE, _collect_stack_status
 from app.services.analytics_service import record_event as _record_event
 
 logger = logging.getLogger("storefront")
 
 
-# ── Database & Analytics backward-compatibility helpers ──────────────────────
+# ── Backward-compatibility helpers for test fixtures & scripts ────────────────
 
 def _analytics_connection(db_path: str):
     """Return managed SQLite connection with busy timeout."""
     return get_sqlite_connection(db_path)
+
+
+def _init_analytics(db_path: str) -> None:
+    """Initialize telemetry tables."""
+    _init_analytics_db(db_path)
 
 
 def _check_post_rate_limit(ip: str) -> None:
@@ -92,7 +105,7 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# ── Middleware Stack (Registered in order of execution) ────────────────────────
+# ── Middleware Stack (Order of execution) ─────────────────────────────────────
 
 # 1. Observability (Correlation IDs + Access Logging + /internal/* probes)
 setup_observability(app, service_name="storefront", version="0.1.0")
@@ -103,23 +116,17 @@ app.add_middleware(RequestContextMiddleware)
 # 3. Prometheus metrics middleware
 app.add_middleware(PrometheusMiddleware, service_name="storefront")
 
-# 4. Response Compression (GZip)
+# 4. Strict CORS & payload body limits (413 on >64KB)
+app.add_middleware(PayloadLimitAndCORSMiddleware)
+
+# 5. Response Compression (GZip)
 app.add_middleware(GZipMiddleware, minimum_size=512, compresslevel=6)
 
-# 5. Cache Control
+# 6. Cache Control
 app.add_middleware(CacheControlMiddleware)
 
-# 6. Strict Security Headers (CSP, X-Frame-Options, HSTS, Permissions-Policy)
+# 7. Strict Security Headers (CSP, X-Frame-Options: DENY, Referrer-Policy, Permissions-Policy)
 app.add_middleware(SecurityHeadersMiddleware)
-
-# 7. CORS (Restricted to GET and public origins)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
-)
 
 
 # ── Static Files Mounting ─────────────────────────────────────────────────────

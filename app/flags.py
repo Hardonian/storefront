@@ -48,6 +48,8 @@ FLAG_SCHEMA: dict[str, dict[str, Any]] = {
     "analytics_sampling": {
         "default": 1.0,
         "type": "float",
+        "min": 0.0,
+        "max": 1.0,
         "desc": "0..1 fraction of page_views to record (cost throttle).",
     },
     "product_grid_dense": {
@@ -56,6 +58,10 @@ FLAG_SCHEMA: dict[str, dict[str, Any]] = {
         "desc": "Denser 4-col grid for desktop.",
     },
 }
+
+SCHEMA = FLAG_SCHEMA
+
+
 
 
 def _ensure_flag_file(path: Path) -> None:
@@ -135,7 +141,7 @@ def _experiment_path(path: Path) -> Path:
     return path.parent / "experiment.json"
 
 
-def _active_experiment(path: Path) -> dict[str, Any] | None:
+def _active_experiment(path: Path = DEFAULT_FLAG_PATH) -> dict[str, Any] | None:
     ep = _experiment_path(path)
     if not ep.exists():
         return None
@@ -143,6 +149,10 @@ def _active_experiment(path: Path) -> dict[str, Any] | None:
         return json.loads(ep.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
+
+
+get_active_experiment = _active_experiment
+
 
 
 def start_experiment(flag: str, force_winner: str | None = None, path: Path = DEFAULT_FLAG_PATH) -> dict[str, Any]:

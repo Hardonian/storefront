@@ -8,8 +8,16 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
+from app import flags as flag_engine
 from app.core.config import require_operator, settings
-from app.funnel_truth import funnel_summary, record_funnel_event
+from app.funnel_truth import (
+    CLASS_LIKELY_BOT,
+    CLASS_SYNTHETIC,
+    CLASS_UNKNOWN,
+    classify_request,
+    funnel_summary,
+    record_funnel_event,
+)
 from app.middleware.request_context import get_session_id, get_traffic_class
 from app.services.analytics_service import get_analytics_summary, record_event
 
@@ -21,37 +29,43 @@ logger = logging.getLogger("storefront.analytics_api")
 @router.post("/api/analytics/event")
 async def track_event(payload: dict = Body(default={}), request: Request = None):
     """Local-first privacy-preserving analytics ingestion."""
+    event = payload.get("event") or payload.get("type")
+    sid = payload.get("sid") or (get_session_id(request) if request else "anon")
+
+    if not flag_engine.should_sample(sid):
+        return {"status": "ok", "sampled": False}
+
     consent = request.cookies.get("hardonia_consent") if request else None
-    event = payload.get("event") if isinstance(payload, dict) else None
 
     # Respect explicit opt-out of non-essential analytics
     if consent == "declined" and event not in ("purchase", "checkout_redirect", "download"):
-        return {"status": "ok", "note": "analytics_consent_declined"}
+        return {"status": "ok", "note": "analytics_consent_declined", "sampled": True}
 
     if not event:
-        return {"status": "ok"}
+        return {"status": "ok", "sampled": True}
 
-    session_id = get_session_id(request) if request else "anon"
-    traffic_class = get_traffic_class(request) if request else "unknown"
+    ua = request.headers.get("user-agent", "") if request else ""
+    classification, reason = classify_request(user_agent=ua)
 
     record_event(
         event,
         page=payload.get("page"),
         product_slug=payload.get("slug"),
-        session_id=session_id,
+        session_id=sid,
         referrer=request.headers.get("referer") if request else None,
-        traffic_class=traffic_class,
+        traffic_class=classification,
     )
 
     # Record into privacy funnel schema
     effective_analytics = settings.effective_analytics_db_path
     if effective_analytics:
+        stage = "landing" if event in ("page_view", "landing") else "offer_click"
         try:
             record_funnel_event(
                 effective_analytics,
-                stage="landing" if event == "page_view" else "offer_click",
-                classification=traffic_class if traffic_class in ("synthetic", "likely_bot") else "unknown",
-                classification_reason="request_classified",
+                stage=stage,
+                classification=classification,
+                classification_reason=reason,
                 referrer=request.headers.get("referer") if request else None,
                 campaign=payload.get("utm_campaign"),
                 page=payload.get("page"),
@@ -61,10 +75,11 @@ async def track_event(payload: dict = Body(default={}), request: Request = None)
         except Exception as e:
             logger.warning("Funnel recording failed: %s", e)
 
-    return {"status": "ok"}
+    return {"status": "ok", "sampled": True}
 
 
 @router.get("/api/analytics")
+@router.post("/api/analytics")
 async def get_analytics(_: None = Depends(require_operator)):
     """Operator-only analytics overview."""
     return get_analytics_summary(settings.effective_analytics_db_path)
@@ -122,15 +137,8 @@ a{color:var(--accent);text-decoration:none}
     return HTMLResponse(html)
 
 
-@router.get("/metrics/funnel", response_class=PlainTextResponse)
-async def funnel_metrics_text(_: None = Depends(require_operator)):
-    """Operator-only funnel metrics formatted for monitoring."""
+@router.get("/metrics/funnel", response_class=JSONResponse)
+async def funnel_metrics_endpoint(_: None = Depends(require_operator)):
+    """Operator-only funnel metrics formatted matching privacy funnel schema."""
     summary = funnel_summary(settings.effective_analytics_db_path)
-    lines = [
-        "# Privacy-Preserving Funnel Metrics",
-        f"schema: {summary.get('schema')}",
-        "---",
-    ]
-    for stage, count in summary.get("commercial_stage_counts", {}).items():
-        lines.append(f"stage_{stage}: {count}")
-    return "\n".join(lines)
+    return JSONResponse(summary)

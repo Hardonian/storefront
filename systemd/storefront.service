@@ -1,0 +1,25 @@
+[Unit]
+Description=Hardonia Storefront - Sovereign Public Catalog & Telemetry Gateway
+After=network.target
+Documentation=https://github.com/Hardonian/storefront
+
+[Service]
+Type=simple
+User=scott
+WorkingDirectory=/home/scott/ai-lab/storefront
+EnvironmentFile=-/home/scott/.local/etc/storefront.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/scott/ai-lab/storefront/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8020 --workers 2 --no-access-log
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+# Sandboxing & Security hardening
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/scott/ai-lab/revenue-os /home/scott/ai-lab/reports /home/scott/ai-lab/bundles
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

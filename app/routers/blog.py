@@ -69,6 +69,10 @@ async def blog_index():
 <title>Local AI Ops Blog & Field Notes — AI Automated Systems</title>
 <meta name='description' content='Field-tested engineering guides for running private AI: ComfyUI, n8n, local inference, and sovereign AI strategy.'>
 <link rel='canonical' href='https://aiautomatedsystems.ca/blog'>
+<meta property='og:type' content='website'>
+<meta property='og:title' content='Local AI Ops Blog — AI Automated Systems'>
+<meta property='og:description' content='Practical private-AI, automation, and GPU operations guides.'>
+<meta property='og:url' content='https://aiautomatedsystems.ca/blog'>
 <style>
 :root{{--bg:#f5f1e8;--card:#fffdf8;--accent:#0f766e;--accent-hover:#115e59;--text:#1f2933;--muted:#66717d;--border:#d8d3ca}}
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -101,6 +105,9 @@ footer a{{color:var(--accent);text-decoration:none}}
 @router.get("/blog/{slug}", response_class=HTMLResponse)
 async def blog_post(slug: str):
     """Render single blog post."""
+    if ".." in slug or "/" in slug or "\\" in slug:
+        raise HTTPException(status_code=404, detail="Not found")
+
     clean_slug = validate_slug(slug)
     drafts_dir = Path(settings.content_drafts_dir)
     target = drafts_dir / f"{clean_slug}.md"
@@ -122,7 +129,6 @@ async def blog_post(slug: str):
                 body_parts.append(f"<p>{_html.escape(s)}</p>")
         body = "\n".join(body_parts)
     else:
-        # Check static posts fallback
         post_match = next((p for p in STATIC_POSTS if p["slug"] == clean_slug), None)
         if not post_match:
             raise HTTPException(status_code=404, detail="Post not found")
@@ -145,6 +151,10 @@ async def blog_post(slug: str):
 <title>{_html.escape(title_raw)} — AI Automated Systems</title>
 <meta name='description' content='{_html.escape(desc_raw)}'>
 <link rel='canonical' href='{canonical}'>
+<meta property='og:type' content='article'>
+<meta property='og:title' content='{_html.escape(title_raw)}'>
+<meta property='og:description' content='{_html.escape(desc_raw)}'>
+<meta property='og:url' content='{canonical}'>
 <script type='application/ld+json'>{article_schema}</script>
 <style>
 :root{{--bg:#f5f1e8;--card:#fffdf8;--accent:#0f766e;--text:#1f2933;--muted:#66717d;--border:#d8d3ca}}

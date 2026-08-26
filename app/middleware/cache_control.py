@@ -21,14 +21,14 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
             or path in ("/order/success", "/order/cancel")
             or path.startswith("/download/")
         ):
-            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Cache-Control"] = "no-store"
             response.headers["Pragma"] = "no-cache"
 
         # Long-cache immutable static assets
         elif path.startswith("/product-assets/"):
             response.headers["Cache-Control"] = "public, max-age=3600"
         elif path.startswith("/landing-assets/"):
-            response.headers["Cache-Control"] = "public, max-age=86400, immutable"
+            response.headers["Cache-Control"] = "public, max-age=86400"
 
         # Crawlable SEO surfaces: cached briefly
         elif path in ("/sitemap.xml", "/blog/rss.xml", "/robots.txt", "/llms.txt"):

@@ -23,19 +23,19 @@ def record_event(
     traffic_class: str = "unclassified",
     src: str | None = None,
     db_path: str | Path | None = None,
+    **kwargs: Any,
 ) -> None:
     """Record an analytics event to SQLite with resilient error handling."""
-    payload = json.dumps(
-        {
-            "page": page,
-            "checkout_url": checkout_url,
-            "session_id": session_id,
-            "referrer": referrer,
-            "traffic_class": traffic_class,
-            "src": src,
-        },
-        separators=(",", ":"),
-    )
+    data = {
+        "page": page,
+        "checkout_url": checkout_url,
+        "session_id": session_id,
+        "referrer": referrer,
+        "traffic_class": traffic_class,
+        "src": src,
+    }
+    data.update(kwargs)
+    payload = json.dumps(data, separators=(",", ":"))
 
     target_db = db_path or settings.effective_analytics_db_path
     try:
@@ -55,7 +55,7 @@ def get_analytics_summary(db_path: str | Path | None = None) -> dict[str, Any]:
     try:
         with get_db(target_db) as conn:
             rows = conn.execute(
-                "SELECT event_type, COUNT(*) c FROM events GROUP BY event_type ORDER BY c DESC"
+                "SELECT event_type, COUNT(*) as c FROM events GROUP BY event_type ORDER BY c DESC"
             ).fetchall()
             recent = conn.execute(
                 "SELECT product_slug, event_type, created_at FROM events "
@@ -63,12 +63,12 @@ def get_analytics_summary(db_path: str | Path | None = None) -> dict[str, Any]:
             ).fetchall()
 
             return {
-                "totals": {r["event_type"]: r["c"] for r in rows},
+                "totals": {r[0]: r[1] for r in rows},
                 "recent": [
                     {
-                        "product_slug": r["product_slug"],
-                        "event_type": r["event_type"],
-                        "created_at": r["created_at"],
+                        "product_slug": r[0],
+                        "event_type": r[1],
+                        "created_at": r[2],
                     }
                     for r in recent
                 ],

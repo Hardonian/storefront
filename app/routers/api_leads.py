@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app import store
 from app.core.config import require_operator, settings
 from app.core.database import get_db
 from app.core.security import build_download_url, validate_email_address, validate_slug
-from app.funnel_truth import record_funnel_event
+from app.funnel_truth import (
+    CLASS_CREDIBLE_HUMAN,
+    CLASS_LIKELY_BOT,
+    CLASS_UNKNOWN,
+    record_funnel_event,
+)
 from app.middleware.rate_limiter import check_rate_limit, get_client_ip
 from app.services.analytics_service import record_event
 
@@ -27,6 +33,8 @@ class LeadCreate(BaseModel):
     product_slug: str | None = Field(default=None, max_length=120)
     source: str = Field(default="landing", max_length=64)
     notes: str | None = Field(default=None, max_length=500)
+    utm_campaign: str | None = Field(default=None, max_length=160)
+    website: str | None = Field(default=None, max_length=254)  # Honeypot field
 
 
 class SubscribeCreate(BaseModel):
@@ -48,6 +56,29 @@ class PrivacyEraseRequest(BaseModel):
 async def create_lead(payload: LeadCreate, request: Request):
     """Capture prospect leads with rate-limiting and email validation."""
     check_rate_limit(request)
+    effective_analytics = settings.effective_analytics_db_path
+    referrer = request.headers.get("referer")
+    campaign = payload.utm_campaign
+
+    # Honeypot trap: if website field is filled, silently log bot funnel event and exit
+    if payload.website:
+        if effective_analytics:
+            try:
+                record_funnel_event(
+                    effective_analytics,
+                    stage="lead_start",
+                    classification=CLASS_LIKELY_BOT,
+                    classification_reason="honeypot",
+                    referrer=referrer,
+                    campaign=campaign,
+                    page=request.url.path,
+                    product=payload.product_slug,
+                    consent="unset",
+                )
+            except Exception:
+                pass
+        return {"status": "ok", "email": payload.email}
+
     email = validate_email_address(payload.email)
     slug = validate_slug(payload.product_slug) if payload.product_slug else None
 
@@ -63,19 +94,30 @@ async def create_lead(payload: LeadCreate, request: Request):
         "lead",
         page=request.url.path,
         product_slug=slug,
-        referrer=request.headers.get("referer"),
+        referrer=referrer,
     )
 
-    # Record into privacy-funnel truth schema
-    effective_analytics = settings.effective_analytics_db_path
+    # Record into privacy-funnel truth schema (both lead_start and validated_lead)
     if effective_analytics:
         try:
             record_funnel_event(
                 effective_analytics,
                 stage="lead_start",
-                classification="unknown",
+                classification=CLASS_UNKNOWN,
                 classification_reason="request_classified",
-                referrer=request.headers.get("referer"),
+                referrer=referrer,
+                campaign=campaign,
+                page=request.url.path,
+                product=slug,
+                consent="unset",
+            )
+            record_funnel_event(
+                effective_analytics,
+                stage="validated_lead",
+                classification=CLASS_CREDIBLE_HUMAN,
+                classification_reason="validated_action",
+                referrer=referrer,
+                campaign=campaign,
                 page=request.url.path,
                 product=slug,
                 consent="unset",
@@ -85,7 +127,6 @@ async def create_lead(payload: LeadCreate, request: Request):
 
     resp: dict[str, Any] = {"status": "ok", "email": email}
 
-    # Generate signed download URL for free trials if bundle exists
     if payload.source == "free_trial" and slug:
         bundle = Path(settings.bundles_dir) / f"{slug}.zip"
         if bundle.exists():
@@ -99,7 +140,6 @@ async def subscribe(payload: SubscribeCreate, request: Request):
     """Newsletter subscription endpoint with honeypot bot trap."""
     check_rate_limit(request)
 
-    # Honeypot trap: if website field is filled, silently discard without error
     if payload.website:
         return {"status": "ok", "email": payload.email, "tag": payload.tag}
 
@@ -127,8 +167,18 @@ async def subscribe(payload: SubscribeCreate, request: Request):
             record_funnel_event(
                 effective_analytics,
                 stage="lead_start",
-                classification="unknown",
+                classification=CLASS_UNKNOWN,
                 classification_reason="request_classified",
+                referrer=request.headers.get("referer"),
+                page=request.url.path,
+                product=None,
+                consent="unset",
+            )
+            record_funnel_event(
+                effective_analytics,
+                stage="validated_lead",
+                classification=CLASS_CREDIBLE_HUMAN,
+                classification_reason="validated_action",
                 referrer=request.headers.get("referer"),
                 page=request.url.path,
                 product=None,
@@ -155,16 +205,16 @@ async def unsubscribe_page():
 <title>Unsubscribe — AI Automated Systems</title>
 <style>
 :root{--bg:#f5f1e8;--card:#fffdf8;--accent:#0f766e;--text:#1f2933;--muted:#66717d;--border:#d8d3ca}
-body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);max-width:540px;margin:10vh auto;padding:0 20px;line-height:1.6}
-.box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:2rem;box-shadow:0 12px 30px rgba(31,41,51,.06)}
-input{width:100%;padding:.75rem 1rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:1rem;margin:1rem 0}
-button{padding:.8rem 1.4rem;background:var(--accent);color:#fff;border:0;border-radius:8px;font-weight:700;cursor:pointer}
-a{color:var(--accent);text-decoration:none}
+body{{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);max-width:540px;margin:10vh auto;padding:0 20px;line-height:1.6}}
+.box{{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:2rem}}
+input{{width:100%;padding:.75rem 1rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:1rem;margin:1rem 0}}
+button{{padding:.8rem 1.4rem;background:var(--accent);color:#fff;border:0;border-radius:8px;font-weight:700;cursor:pointer}}
+a{{color:var(--accent);text-decoration:none}}
 </style></head>
 <body>
 <div class='box'>
 <h2>Manage Email Preferences</h2>
-<p style='color:var(--muted)'>Enter your email address below to unsubscribe from our newsletter and updates.</p>
+<p style='color:var(--muted)'>Enter your email address below to unsubscribe from our newsletter.</p>
 <form id='unsub-form'>
   <input type='email' id='unsub-email' placeholder='your@email.com' required>
   <button type='submit'>Unsubscribe</button>
@@ -205,8 +255,19 @@ async def api_unsubscribe(payload: UnsubscribeRequest):
 
 @router.post("/api/privacy/erase")
 async def privacy_erase(payload: PrivacyEraseRequest):
-    """Erase user email records across leads for privacy compliance."""
+    """Queue a privacy erasure request in privacy_requests table without immediately dropping active records."""
     email = validate_email_address(payload.email)
     with get_db(settings.db_path) as conn:
-        conn.execute("DELETE FROM leads WHERE email = ?", (email,))
-    return {"status": "ok", "erased": email}
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS privacy_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending_verification',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )"""
+        )
+        conn.execute(
+            "INSERT INTO privacy_requests (email, status) VALUES (?, 'pending_verification')",
+            (email,),
+        )
+    return {"status": "pending_verification", "email": email}

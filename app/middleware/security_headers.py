@@ -24,8 +24,8 @@ DEFAULT_CSP = (
 
 STRICT_CSP = (
     "default-src 'self'; "
+    "style-src 'self' https://fonts.googleapis.com; "
     "script-src 'self'; "
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src 'self' https://fonts.gstatic.com data:; "
     "img-src 'self' data: https: blob:; "
     "connect-src 'self' https:; "
@@ -42,7 +42,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         duration_ms = (time.perf_counter() - start_time) * 1000.0
 
-        # Choose CSP based on route sensitivity
         if request.url.path in ("/order/success", "/buyer"):
             csp = STRICT_CSP
         else:

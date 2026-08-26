@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  storefront:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: storefront-app
+    restart: unless-stopped
+    ports:
+      - "8020:8020"
+    environment:
+      - STOREFRONT_DB_PATH=/data/storefront.db
+      - ANALYTICS_DB_PATH=/data/analytics.db
+      - BUNDLES_DIR=/data/bundles
+      - LEGAL_DIR=/data/legal
+      - CONTENT_DRAFTS_DIR=/data/drafts
+      - STOREFRONT_FLAGS_PATH=/data/flags.json
+      - API_KEY=${API_KEY:-storefront_local_operator_key}
+      - DOWNLOAD_SECRET=${DOWNLOAD_SECRET:-storefront_download_hmac_secret}
+    volumes:
+      - storefront_data:/data
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/health').read()"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  storefront_data:
+    driver: local

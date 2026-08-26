@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -29,33 +29,40 @@ async def assistant_health():
 
 @router.get("/support-widget.js", response_class=PlainTextResponse)
 async def support_widget():
-    """Embeddable support assistant widget script."""
-    return """
+    """Embeddable support assistant widget script without innerHTML sinks."""
+    js = r"""
 (function(){
+  var container = document.createElement('div');
+  container.className = 'au-widget';
+  container.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;font-family:system-ui;';
+
   var btn = document.createElement('button');
-  btn.innerText = '💬 Ask Assistant';
-  btn.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#0f766e;color:#fff;border:0;border-radius:24px;padding:10px 18px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(15,118,110,.35);z-index:9999;';
+  btn.textContent = "💬 I\'m AU — Ask Assistant";
+  btn.style.cssText = 'background:#0f766e;color:#fff;border:0;border-radius:24px;padding:10px 18px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(15,118,110,.35);';
+
   btn.onclick = function() {
-    var q = prompt('Ask about Hardonia products, security, or deployment:');
+    var q = prompt("I\'m AU. Ask about Hardonia products, security, or deployment:");
     if (q) {
-      btn.innerText = 'Thinking…';
+      btn.textContent = 'Thinking…';
       fetch('/api/ask', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({query: q})
       }).then(function(r){ return r.json(); })
       .then(function(res){
-        btn.innerText = '💬 Ask Assistant';
+        btn.textContent = "💬 I\'m AU — Ask Assistant";
         alert(res.answer || res.escalation || 'No answer available.');
       }).catch(function(){
-        btn.innerText = '💬 Ask Assistant';
+        btn.textContent = "💬 I\'m AU — Ask Assistant";
         alert('Assistant temporarily unavailable.');
       });
     }
   };
-  document.body.appendChild(btn);
+  container.appendChild(btn);
+  document.body.appendChild(container);
 })();
 """
+    return Response(js, media_type="application/javascript")
 
 
 @router.get("/support", response_class=HTMLResponse)

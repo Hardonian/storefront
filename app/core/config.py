@@ -110,9 +110,9 @@ PUBLIC_BRANDS: dict[str, tuple[str, str]] = {
     "www.aiautomatedsystems.ca": ("https://aiautomatedsystems.ca", "AI Automated Systems"),
     "hardonia.store": ("https://hardonia.store", "Hardonia Store"),
     "www.hardonia.store": ("https://hardonia.store", "Hardonia Store"),
-    "localhost": ("http://localhost:8020", "AI Automated Systems (Local)"),
-    "127.0.0.1": ("http://127.0.0.1:8020", "AI Automated Systems (Local)"),
-    "testserver": ("http://testserver", "AI Automated Systems (Test)"),
+    "localhost": ("https://aiautomatedsystems.ca", "AI Automated Systems"),
+    "127.0.0.1": ("https://aiautomatedsystems.ca", "AI Automated Systems"),
+    "testserver": ("https://aiautomatedsystems.ca", "AI Automated Systems"),
 }
 
 

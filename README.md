@@ -16,7 +16,7 @@ It presents an ultra-fast, local-first catalog of air-gapped AI tools, autonomou
 
 Storefront is built as a domain-driven, modular FastAPI application decoupled into clean layers:
 
-```
+```text
 storefront/
 ├── app/
 │   ├── core/                  # Core foundations & runtime configuration
@@ -60,7 +60,8 @@ storefront/
 │   └── main.py                # Application entrypoint & middleware assembly
 │
 ├── static/                    # Fast static CSS, JS, SVGs, and landing assets
-├── tests/                     # 100% passing test suite (71 contracts)
+├── tests/                     # 100% passing test suite (105 contracts)
+│   ├── test_threat_model_qa.py
 │   ├── test_bandit_service.py
 │   ├── test_anomaly_detector.py
 │   ├── test_interactive_tools.py
@@ -91,20 +92,24 @@ storefront/
 ## ⚡ Autonomous Capabilities & Sovereign Features
 
 ### 1. Bayesian Multi-Armed Bandit (Thompson Sampling)
+
 - Replaces static A/B testing with continuous Bayesian optimization for headlines (`hero_variant`) and CTAs (`cta_variant`).
 - Samples from $\text{Beta}(1 + \alpha, 1 + \beta)$ posteriors to balance exploration with exploitation.
 - **Autonomous Winner Promotion**: When a variant reaches $\ge 99\%$ win probability with sufficient sample size, Storefront automatically pins the winning copy without manual intervention.
 
 ### 2. Real-Time Anomaly & Conversion Stall Detector
+
 - Monitors conversion funnels (`landing` $\to$ `lead_start` $\to$ `checkout_start` $\to$ `provider_payment`).
 - Emits structured operational alerts if checkout abandonment spikes or if 5xx errors surge.
 
 ### 3. Interactive Zero-Cloud Previews & Sizers
+
 - **Sentinel Redaction Sandbox** (`/tools/redaction-sandbox`): Live regex/WASM sanitization demo for HIPAA/GDPR clinical and legal notes.
 - **LLM Hardware Topology Sizer** (`/tools/hardware-sizer`): Calculates exact VRAM requirements, KV cache overhead, GPU topologies, and power budgets for Llama-3, DeepSeek, and Mistral.
 - **Dynamic Architecture Blueprint** (`/blueprint/{token}`): Generates personalized enterprise deployment plans on the fly.
 
 ### 4. Cryptographic Air-Gapped Licensing & Buyer Locker
+
 - Issues HMAC-SHA256 signed software license certificates (`.lic`) for purchased suites.
 - Buyer Locker (`/buyer`) allows verified operators to view entitlement portfolios and download signed update bundles.
 
@@ -113,28 +118,37 @@ storefront/
 ## 🚀 Quickstart
 
 ### 1. Local Launch
+
 **Windows PowerShell:**
+
 ```powershell
 .\run.ps1
 ```
+
 **Linux / macOS:**
+
 ```bash
 ./run.sh
 ```
+
 Server runs on **`http://127.0.0.1:8020`**.
 
 ### 2. Verify Fleet Telemetry & Stack Bridge
+
 ```bash
 python scripts/simulate_stack_bridge.py
 ```
 
 ### 3. Run Automated Tests
+
 ```bash
 uv run --with pytest --with httpx pytest
 ```
-*Result: 71 / 71 tests passing (100% pass rate).*
+
+*Result: 105 / 105 tests passing (100% pass rate).*
 
 ---
 
 ## 📜 License & Sovereign Stack Heritage
+
 Part of the **Hardonia Sovereign AI Operating Stack**. Built for independent operators who demand verifiable execution, complete local ownership, and zero data leakage.

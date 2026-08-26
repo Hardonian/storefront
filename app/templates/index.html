@@ -70,6 +70,10 @@
     .tool-box { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:1.75rem; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:.5rem; }
     .tool-box b { font-size:1.15rem; }
     .tool-box p { color:var(--text-muted); font-size:.9rem; margin-bottom:auto; }
+    .tool-btn { margin-top:.75rem; }
+    .gpu-btn { margin-top:.5rem; }
+    .nl-code-input { flex:0 0 180px; padding:.7rem 1rem; border-radius:8px; border:1px solid var(--border); background:#f5f1e8; color:var(--text); font-size:.9rem; }
+    .honeypot-field { position:absolute; left:-9999px; width:1px; height:1px; opacity:0; }
     .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:1.5rem; }
     .grid.grid-dense { grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); }
     .card { position:relative; overflow:hidden; background:rgba(255,253,248,.88); border:1px solid var(--border); box-shadow:var(--shadow); border-radius:12px; padding:1.5rem; transition:border-color .25s ease, transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s ease; display:flex; flex-direction:column; gap:.75rem; isolation:isolate; }
@@ -150,12 +154,12 @@
     <div class="tool-box">
       <b>🛡️ Zero-Cloud Redaction Sandbox</b>
       <p>Test deterministic local document redaction for HIPAA, GDPR, and confidential legal drafting.</p>
-      <a class="btn btn-secondary" href="/tools/redaction-sandbox" style="margin-top:.75rem">Try Redaction Live →</a>
+      <a class="btn btn-secondary tool-btn" href="/tools/redaction-sandbox">Try Redaction Live →</a>
     </div>
     <div class="tool-box">
       <b>⚡ LLM Hardware Topology Sizer</b>
       <p>Calculate exact GPU VRAM budgets and power costs for Llama-3, DeepSeek, and Mistral.</p>
-      <a class="btn btn-secondary" href="/tools/hardware-sizer" style="margin-top:.75rem">Size Your Workload →</a>
+      <a class="btn btn-secondary tool-btn" href="/tools/hardware-sizer">Size Your Workload →</a>
     </div>
   </div>
 
@@ -163,7 +167,7 @@
     <div class="gpu-live"><span class="dot" id="gpu-dot"></span> GPU FARM TELEMETRY</div>
     <div class="gpu-stat"><b id="gpu-free">83.4% VRAM free</b></div>
     <div class="gpu-sub" id="gpu-name">Hardonia Sovereign GPU Farm</div>
-    <a href="/p/hardonia-compute-api-access" class="btn btn-primary" style="margin-top:.5rem">Rent GPU Capacity →</a>
+    <a href="/p/hardonia-compute-api-access" class="btn btn-primary gpu-btn">Rent GPU Capacity →</a>
   </div>
 
   {% if newsletter_enabled %}
@@ -172,8 +176,8 @@
     <p>Free guide + early access to new tooling. No spam. Unsubscribe anytime.</p>
     <form id="nl-form">
       <input type="email" id="nl-email" placeholder="operator@company.com" required>
-      <input type="text" id="nl-code" placeholder="discount code (optional)" style="flex:0 0 180px;padding:.7rem 1rem;border-radius:8px;border:1px solid var(--border);background:#f5f1e8;color:var(--text);font-size:.9rem;">
-      <input type="text" id="nl-website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;">
+      <input type="text" id="nl-code" placeholder="discount code (optional)" class="nl-code-input">
+      <input type="text" id="nl-website" tabindex="-1" autocomplete="off" aria-hidden="true" class="honeypot-field">
       <button type="submit" class="btn btn-primary">Subscribe</button>
     </form>
     <div class="msg" id="nl-msg"></div>

@@ -1,4 +1,4 @@
-"""Feature flag management, dynamic experiments, and runtime configuration."""
+"""Feature flag management, dynamic experiments, and multi-armed bandit telemetry."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from app import flags as flag_engine
 from app.core.config import require_operator
 from app.services.analytics_service import record_event
+from app.services.bandit_service import calculate_significance, get_bandit_stats
 
 router = APIRouter(prefix="/api/flags", tags=["Feature Flags"])
 logger = logging.getLogger("storefront.flags")
@@ -90,3 +91,21 @@ async def control_experiment(payload: ExperimentControlRequest, _: None = Depend
         stopped = flag_engine.stop_experiment()
         record_event("experiment_stop")
         return {"status": "ok", "stopped": stopped}
+
+
+@router.get("/bandit")
+async def get_bandit_report(_: None = Depends(require_operator)):
+    """Retrieve Bayesian Multi-Armed Bandit statistics and variant significance."""
+    experiments = ["hero_variant", "cta_variant"]
+    report: dict[str, Any] = {}
+
+    for exp in experiments:
+        stats = get_bandit_stats(exp)
+        probs = calculate_significance(stats) if stats else {}
+        report[exp] = {
+            "stats": stats,
+            "win_probability": probs,
+            "active": True,
+        }
+
+    return {"bandit_report": report}

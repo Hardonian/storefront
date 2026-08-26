@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS leads (
     product_slug TEXT,
     source TEXT DEFAULT 'landing',
     notes TEXT,
+    tag TEXT,
     status TEXT DEFAULT 'new',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

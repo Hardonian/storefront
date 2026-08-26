@@ -1,4 +1,4 @@
-"""System health, GPU telemetry, proof score, and Prometheus metrics."""
+"""System health, GPU telemetry, proof score, stack fleet monitoring, and Prometheus metrics."""
 
 from __future__ import annotations
 
@@ -11,7 +11,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from prometheus_client import generate_latest
 
 from app.core.config import require_operator, settings
+from app.services.anomaly_detector import get_active_anomalies, inspect_funnel_health
+from app.services.demand_intelligence import get_demand_insights
 from app.services.product_service import list_products
+from app.services.stack_bridge import get_live_fleet_telemetry, get_live_gpu_capacity
 
 router = APIRouter(tags=["Status & Telemetry"])
 
@@ -35,14 +38,7 @@ def _collect_stack_status() -> dict[str, Any]:
 
 def _gpu_status() -> dict[str, Any]:
     """Simulated or live GPU telemetry from Hardonia compute infrastructure."""
-    return {
-        "status": "ok",
-        "free_pct": 83.4,
-        "gpu": "Hardonia Sovereign GPU Farm (V100 32GB + P40 24GB)",
-        "from_cents_per_hour": 2000,
-        "nodes_online": 3,
-        "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
-    }
+    return get_live_gpu_capacity()
 
 
 @router.get("/health")
@@ -53,9 +49,16 @@ async def health_check():
 
 @router.get("/status", response_class=HTMLResponse)
 async def status_page():
-    """Interactive system status and live trust evidence dashboard."""
+    """Interactive system status, GPU farm telemetry, and live fleet trust dashboard."""
     products = list_products(settings.db_path)
     gpu = _gpu_status()
+    fleet = get_live_fleet_telemetry()
+    anomalies = get_active_anomalies()
+
+    anomalies_html = ""
+    if anomalies:
+        rows = [f"<li style='color:#ef4444'>⚠️ <b>{a['type']}</b>: {a['description']}</li>" for a in anomalies]
+        anomalies_html = f"<div style='background:#fef2f2;border:1px solid #f87171;border-radius:10px;padding:1rem;margin:1rem 0'><ul>{''.join(rows)}</ul></div>"
 
     html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -81,6 +84,9 @@ a{{color:var(--accent);text-decoration:none}}
     <span class='ok-badge'><span class='dot'></span> All Systems Operational</span>
   </div>
   <p style='color:var(--muted);margin-top:.5rem'>Real-time verification of catalog services, local SQLite state, and sovereign compute nodes.</p>
+
+  {anomalies_html}
+
   <div class='grid'>
     <div class='metric'><span>Catalog Products</span><b>{len(products)} Live</b></div>
     <div class='metric'><span>GPU Farm Status</span><b>{gpu['free_pct']}% Free</b></div>
@@ -112,6 +118,18 @@ async def status_json():
         m._STATUS_CACHE = _STATUS_CACHE
 
     return result
+
+
+@router.get("/api/stack/fleet")
+async def api_stack_fleet(_: None = Depends(require_operator)):
+    """Operator-only live sovereign fleet telemetry."""
+    return get_live_fleet_telemetry()
+
+
+@router.get("/api/demand/insights")
+async def api_demand_insights(_: None = Depends(require_operator)):
+    """Operator-only customer demand signals and inquiry gap analysis."""
+    return get_demand_insights()
 
 
 @router.get("/metrics")

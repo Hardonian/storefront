@@ -140,7 +140,7 @@ def evaluate_and_auto_promote(experiment: str, db_path: str | None = None) -> st
                 prob,
                 variant,
             )
-            flag_engine.start_experiment(experiment, force_winner=variant)
+            flag_engine.start_experiment(experiment, force_winner=variant, path=flag_engine.DEFAULT_FLAG_PATH)
             return variant
 
     return None

@@ -53,12 +53,14 @@ from app.routers import (
     api_products,
     api_support,
     blog,
+    blueprint,
     catalog,
     commerce,
     legal,
     private_ai_ops,
     seo,
     status,
+    tools,
 )
 from app.routers.api_leads import LeadCreate, SubscribeCreate
 from app.routers.status import _STATUS_CACHE, _collect_stack_status
@@ -154,3 +156,5 @@ app.include_router(legal.router)
 app.include_router(blog.router)
 app.include_router(seo.router)
 app.include_router(private_ai_ops.router)
+app.include_router(tools.router)
+app.include_router(blueprint.router)

@@ -52,17 +52,7 @@
     .btn-secondary { background:transparent; color:var(--text); border:1px solid var(--border); }
     .btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
     .proof-callout { display:flex; gap:1rem; align-items:center; justify-content:space-between; flex-wrap:wrap; max-width:900px; margin:0 auto 2.5rem; padding:1.25rem 1.5rem; background:linear-gradient(110deg,#eef6f3,#fff8ed); border:1px solid #99d5cf; border-radius:16px; position:relative; overflow:hidden; }
-    .proof-callout::after { content:""; position:absolute; top:0; bottom:0; width:22%; background:linear-gradient(90deg,transparent,rgba(255,255,255,.42),transparent); transform:translateX(-160%); animation:proof-scan 7s ease-in-out infinite; pointer-events:none; }
-    @keyframes proof-scan { 0%,62% { transform:translateX(-160%); } 82%,100% { transform:translateX(560%); } }
-    .proof-callout strong { display:block; font-size:1.05rem; }
-    .proof-callout p { color:#0f766e; margin:.25rem 0 0; font-size:.88rem; }
     .proof-score { font-size:2.4rem; font-weight:900; color:#b45309; white-space:nowrap; }
-    .journey { margin:2.5rem auto; max-width:1000px; display:grid; grid-template-columns:repeat(4,1fr); gap:.7rem; }
-    .journey-step { padding:1rem; background:#fffdf8; border:1px solid var(--border); border-radius:12px; transition:transform .25s ease, border-color .25s ease, background .25s ease; }
-    .journey-step:hover { transform:translateY(-4px); border-color:#99d5cf; background:#f8fffc; }
-    .journey-step b { display:block; color:#0f766e; font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; }
-    .journey-step span { display:block; margin-top:.3rem; font-weight:700; }
-    .journey-step small { display:block; color:var(--text-muted); margin-top:.25rem; }
     .section-heading { max-width:1000px; margin:3rem auto 1rem; }
     .section-heading h2 { font-size:1.8rem; letter-spacing:-.03em; }
     .section-heading p { color:var(--text-muted); margin-top:.35rem; }
@@ -76,24 +66,20 @@
     @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
     .gpu-stat { font-size:1.8rem; font-weight:800; color:var(--price); margin:.25rem 0; }
     .gpu-sub { color:var(--text-muted); font-size:.8rem; }
+    .tools-band { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:1.25rem; max-width:1000px; margin:2.5rem auto; }
+    .tool-box { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:1.75rem; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:.5rem; }
+    .tool-box b { font-size:1.15rem; }
+    .tool-box p { color:var(--text-muted); font-size:.9rem; margin-bottom:auto; }
     .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:1.5rem; }
     .grid.grid-dense { grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); }
-    .grid.grid-dense .card-img { height:130px; }
-    .card-img { width:100%; height:180px; object-fit:cover; background:linear-gradient(135deg,#d9f3ee 0%,#fae8d5 100%); border-radius:8px; border:1px solid var(--border); display:block; transition:transform .45s cubic-bezier(.2,.8,.2,1), filter .45s ease, border-color .2s; }
-    .card-img:hover { border-color:var(--accent); transform:scale(1.02); filter:saturate(1.05); }
     .card { position:relative; overflow:hidden; background:rgba(255,253,248,.88); border:1px solid var(--border); box-shadow:var(--shadow); border-radius:12px; padding:1.5rem; transition:border-color .25s ease, transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s ease; display:flex; flex-direction:column; gap:.75rem; isolation:isolate; }
-    .card::before { content:""; position:absolute; inset:-1px; z-index:-1; pointer-events:none; background:radial-gradient(220px circle at var(--mx,50%) var(--my,0%),rgba(20,184,166,.16),transparent 62%); opacity:0; transition:opacity .25s ease; }
     .card:hover, .card:focus-within { border-color:var(--accent); transform:translateY(-6px); box-shadow:var(--shadow-hover); }
-    .card:hover::before, .card:focus-within::before { opacity:1; }
-    .card h3 { font-size:1.15rem; font-weight:700; transition:color .2s ease, transform .2s ease; }
-    .card:hover h3, .card:focus-within h3 { color:var(--accent-hover); transform:translateX(2px); }
+    .card h3 { font-size:1.15rem; font-weight:700; }
     .card .price { color:var(--price); font-weight:600; font-size:.95rem; }
     .card .audience { color:var(--text-muted); font-size:.85rem; }
     .card .actions { display:flex; gap:.5rem; margin-top:auto; }
     .badge { display:inline-block; padding:.15rem .5rem; border-radius:4px; font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
     .badge-ready { background:#d1fae5; color:#166534; }
-    .badge-draft { background:#f5f1e8; color:#66717d; }
-    .badge-popular { background:#f3a73c; color:#1a1205; font-weight:700; }
     .empty { text-align:center; padding:3rem; color:var(--text-muted); }
     .newsletter { max-width:640px; margin:0 auto 2.5rem; padding:1.5rem; background:rgba(255,253,248,.88); border:1px solid var(--border); box-shadow:var(--shadow); border-radius:12px; text-align:center; }
     .newsletter h2 { font-size:1.25rem; margin-bottom:.25rem; }
@@ -111,11 +97,8 @@
     .roi-row label { display:flex; flex-direction:column; gap:.3rem; font-size:.8rem; color:var(--text-muted); text-align:left; }
     .roi-row input, .roi-row select { padding:.6rem .8rem; border-radius:8px; border:1px solid var(--border); background:#f5f1e8; color:var(--text); font-size:.95rem; width:200px; }
     .roi-result { margin-top:1.2rem; font-size:1.05rem; font-weight:600; color:var(--price); min-height:1.5em; }
-    .roi-result small { color:var(--text-muted); font-weight:400; }
     footer { text-align:center; margin-top:3rem; color:var(--text-muted); font-size:.85rem; }
     footer a { color:var(--accent); text-decoration:none; }
-    @media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation-duration:.001ms !important; animation-iteration-count:1 !important; scroll-behavior:auto !important; transition-duration:.001ms !important; } }
-    @media(max-width:700px){ .journey{grid-template-columns:1fr 1fr} .site-nav{align-items:flex-start;flex-direction:column} .hero h1{font-size:2.4rem} .proof-score{font-size:1.8rem} }
   </style>
   <script type="application/ld+json">
   {"@context":"https://schema.org","@type":"ItemList","itemListElement":[{% for p in products %}{"@type":"ListItem","position":loop.index,"item":{"@type":"Product","name":"{{ p.name }}","url":"{{ site_base }}/p/{{ p.slug }}"}}{% if not loop.last %},{% endif %}{% endfor %}]}
@@ -133,9 +116,11 @@
   <nav class="site-nav" aria-label="Primary navigation">
     <a class="brand" href="/">{{ site_name }}</a>
     <div class='links'>
+      <a href='/tools/redaction-sandbox'>Redaction Demo</a>
+      <a href='/tools/hardware-sizer'>Hardware Sizer</a>
       <a href='/proof-score'>Proof Score</a>
       <a href='/pricing'>Pricing</a>
-      <a href='/free-audit-guide'>Free Audit</a>
+      <a href='/buyer'>Buyer Locker</a>
       <a href='/status'>Status</a>
       <a href='/contact'>Talk to an operator</a>
     </div>
@@ -147,8 +132,8 @@
     <p class="hero-copy">A private decision-support fabric connecting verified evidence, operational context, explainable analysis, governed actions, and local AI tools — without surrendering control of your data.</p>
     <div class="hero-actions">
       <a class="btn btn-primary" href="/pricing">Browse Software Catalog →</a>
+      <a class="btn btn-secondary" href="/tools/hardware-sizer">Calculate GPU Requirements</a>
       <a class="btn btn-secondary" href="/free-audit-guide">Run Readiness Audit</a>
-      <a class="btn btn-secondary" href="/proof-score">Inspect Proof Score</a>
     </div>
   </header>
 
@@ -160,6 +145,19 @@
     <span class="pill">🛡️ <b>100% Air-Gapped</b> local execution</span>
   </div>
   {% endif %}
+
+  <div class="tools-band">
+    <div class="tool-box">
+      <b>🛡️ Zero-Cloud Redaction Sandbox</b>
+      <p>Test deterministic local document redaction for HIPAA, GDPR, and confidential legal drafting.</p>
+      <a class="btn btn-secondary" href="/tools/redaction-sandbox" style="margin-top:.75rem">Try Redaction Live →</a>
+    </div>
+    <div class="tool-box">
+      <b>⚡ LLM Hardware Topology Sizer</b>
+      <p>Calculate exact GPU VRAM budgets and power costs for Llama-3, DeepSeek, and Mistral.</p>
+      <a class="btn btn-secondary" href="/tools/hardware-sizer" style="margin-top:.75rem">Size Your Workload →</a>
+    </div>
+  </div>
 
   <div class="gpu-widget" id="gpu-widget">
     <div class="gpu-live"><span class="dot" id="gpu-dot"></span> GPU FARM TELEMETRY</div>
@@ -227,7 +225,7 @@
   </section>
 
   <footer>
-    <p>{{ site_name }} · <a href="/legal/terms-of-service">Terms</a> · <a href="/legal/privacy-policy">Privacy</a> · <a href="/legal/refund-policy">Refunds</a> · <a href="/unsubscribe">Unsubscribe</a> · <a href="/status">Live Status</a></p>
+    <p>{{ site_name }} · <a href="/legal/terms-of-service">Terms</a> · <a href="/legal/privacy-policy">Privacy</a> · <a href="/legal/refund-policy">Refunds</a> · <a href="/buyer">Buyer Locker</a> · <a href="/unsubscribe">Unsubscribe</a> · <a href="/status">Live Status</a></p>
   </footer>
 </div>
 </main>

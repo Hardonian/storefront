@@ -24,8 +24,12 @@ logger = logging.getLogger("storefront.catalog")
 @router.get("/", response_class=HTMLResponse)
 @router.get("/store", response_class=HTMLResponse)
 @router.get("/shop", response_class=HTMLResponse)
-async def catalog_home(request: Request, sort: str = Query("readiness", pattern="^(readiness|bestsellers)$")):
-    """Public catalog home grid."""
+async def catalog_home(
+    request: Request,
+    sort: str = Query("readiness", pattern="^(readiness|bestsellers)$"),
+    category: str | None = Query(None),
+):
+    """Public catalog home grid with optional sorting and capability filtering."""
     site_base, site_name = public_brand(request)
     session_id = get_session_id(request)
     flags = flag_engine.load_flags()
@@ -37,6 +41,12 @@ async def catalog_home(request: Request, sort: str = Query("readiness", pattern=
     grid_dense = flags.get("product_grid_dense", False)
 
     products = store.list_products(settings.db_path, sort=sort)
+    if category and category != "all":
+        cat_lower = category.lower()
+        products = [
+            p for p in products
+            if cat_lower in p.get("category", "").lower() or cat_lower in p.get("slug", "").lower()
+        ]
 
     # Record page view event if sampled
     if flag_engine.should_sample(session_id):
@@ -59,6 +69,7 @@ async def catalog_home(request: Request, sort: str = Query("readiness", pattern=
         trust_bar_enabled=trust_bar_enabled,
         grid_dense=grid_dense,
         sort=sort,
+        selected_category=category or "all",
     )
     return HTMLResponse(rendered)
 

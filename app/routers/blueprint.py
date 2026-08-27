@@ -7,7 +7,7 @@ import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app import store
@@ -18,10 +18,22 @@ from app.core.security import generate_blueprint_token, validate_email_address
 router = APIRouter(tags=["Architecture Blueprints"])
 logger = logging.getLogger("storefront.blueprint")
 
+CREATE_BLUEPRINTS_DDL = """
+CREATE TABLE IF NOT EXISTS blueprints (
+    token TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    workload TEXT NOT NULL,
+    scale TEXT DEFAULT 'medium',
+    compliance TEXT DEFAULT 'standard',
+    blueprint_json TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
 
 class BlueprintGenerateRequest(BaseModel):
     email: str = Field(..., max_length=254)
-    workload: str = Field(..., max_length=120)  # e.g. 'hipaa_notes', 'diffusion_studio', 'code_assistant'
+    workload: str = Field(..., max_length=120)  # 'hipaa_notes', 'diffusion_studio', 'automation_ops', 'finetune_specialist', 'agent_swarm', 'code_assistant'
     scale: str = Field(default="medium", max_length=64)     # 'small', 'medium', 'enterprise'
     compliance: str = Field(default="standard", max_length=64)  # 'standard', 'hipaa', 'gdpr', 'air_gapped'
 
@@ -36,7 +48,7 @@ async def generate_blueprint(payload: BlueprintGenerateRequest, request: Request
     specs = {
         "hipaa_notes": {
             "title": "Sovereign Clinical & HIPAA Note Generation Stack",
-            "model": "Llama-3-70B-Instruct (4-bit Q4_K_M)",
+            "model": "Llama-3.3-70B-Instruct (4-bit Q4_K_M)",
             "gpus": "2x NVIDIA Tesla V100 32GB (64GB Total VRAM)",
             "primary_package": "sentinel-compliance-suite",
             "price": "Pro $149",
@@ -60,6 +72,24 @@ async def generate_blueprint(payload: BlueprintGenerateRequest, request: Request
             "price": "Pro $79",
             "isolation": "Private Docker Bridge Network",
             "compliance_guarantees": ["Zero Third-Party SaaS Per-Task Fees", "Local Webhook Verification", "Automated Daily Database Backups"],
+        },
+        "finetune_specialist": {
+            "title": "Autonomous Domain Fine-Tuning & Adapter Fabric",
+            "model": "Llama-3.1-8B / Qwen-2.5-32B + Unsloth QLoRA",
+            "gpus": "1x NVIDIA Tesla V100 32GB or RTX 4090 24GB",
+            "primary_package": "hardonia-compute-api-access",
+            "price": "Starter $20",
+            "isolation": "Air-Gapped Training Workspace",
+            "compliance_guarantees": ["Full Local Weight Ownership", "Cryptographic Adapter Signing", "Zero Prompt Logging"],
+        },
+        "code_assistant": {
+            "title": "Air-Gapped Autonomous Code Assistant & Audit Node",
+            "model": "Qwen 2.5 Coder 32B Instruct (Q4_K_M)",
+            "gpus": "1x NVIDIA Tesla V100 32GB or 2x P40 24GB",
+            "primary_package": "hardonia-enterpriser",
+            "price": "Enterprise $497",
+            "isolation": "Local Subnet + Continue.dev / Tabby Gateway",
+            "compliance_guarantees": ["Zero Proprietary Code Exfiltration", "Deterministic Vulnerability Scans", "Offline AST Validation"],
         },
     }
 
@@ -98,6 +128,7 @@ async def generate_blueprint(payload: BlueprintGenerateRequest, request: Request
     )
 
     with get_db(settings.db_path) as conn:
+        conn.execute(CREATE_BLUEPRINTS_DDL)
         conn.execute(
             """INSERT INTO blueprints (token, email, workload, scale, compliance, blueprint_json)
                VALUES (?, ?, ?, ?, ?, ?)""",
@@ -117,10 +148,11 @@ async def generate_blueprint(payload: BlueprintGenerateRequest, request: Request
 
 @router.get("/blueprint/{token}", response_class=HTMLResponse)
 async def view_blueprint(token: str, request: Request):
-    """Render executive blueprint document."""
+    """Render executive blueprint document with rich visual layout."""
     site_base, site_name = public_brand(request)
 
     with get_db(settings.db_path) as conn:
+        conn.execute(CREATE_BLUEPRINTS_DDL)
         row = conn.execute("SELECT blueprint_json FROM blueprints WHERE token = ?", (token,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Blueprint not found")
@@ -135,18 +167,31 @@ async def view_blueprint(token: str, request: Request):
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{_html.escape(data['title'])} — {site_name}</title>
   <style>
-    :root {{ --bg: #f5f1e8; --card: #fffdf8; --accent: #0f766e; --text: #1f2933; --muted: #66717d; --border: #d8d3ca; --price: #b45309; }}
-    body {{ font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 3rem 1.5rem; line-height: 1.6; }}
-    .container {{ max-width: 860px; margin: 0 auto; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem; box-shadow: 0 12px 30px rgba(31,41,51,.06); }}
-    .badge {{ display: inline-block; padding: .25rem .75rem; background: #d1fae5; color: #166534; font-weight: 700; border-radius: 999px; font-size: .8rem; text-transform: uppercase; margin-bottom: 1rem; }}
-    h1 {{ font-size: 2.4rem; letter-spacing: -.03em; margin-bottom: .5rem; }}
+    :root {{
+      --bg: #0b1120;
+      --card: #131d33;
+      --card-alt: #1a2744;
+      --accent: #0f766e;
+      --accent-glow: #14b8a6;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --border: #233354;
+      --green: #10b981;
+      --price: #fbbf24;
+    }}
+    * {{ margin:0; padding:0; box-sizing:border-box; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 3rem 1.5rem; line-height: 1.6; min-height: 100vh; }}
+    .container {{ max-width: 880px; margin: 0 auto; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem; box-shadow: 0 12px 30px rgba(0,0,0,.35); }}
+    .badge {{ display: inline-block; padding: .25rem .75rem; background: #064e3b; color: #34d399; font-weight: 700; border-radius: 999px; font-size: .8rem; text-transform: uppercase; margin-bottom: 1rem; }}
+    h1 {{ font-size: 2.4rem; letter-spacing: -.03em; margin-bottom: .5rem; color: #fff; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin: 2rem 0; }}
-    .card {{ background: var(--bg); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--border); }}
-    .card b {{ display: block; font-size: 1.1rem; color: var(--accent); margin-top: .3rem; }}
+    .card {{ background: var(--card-alt); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--border); }}
+    .card b {{ display: block; font-size: 1.1rem; color: var(--accent-glow); margin-top: .3rem; }}
     ul {{ padding-left: 1.2rem; margin: 1rem 0; }}
-    li {{ margin: .4rem 0; }}
+    li {{ margin: .4rem 0; color: #fff; }}
     .btn {{ display: inline-block; padding: .85rem 1.6rem; background: var(--accent); color: #fff; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 1.05rem; }}
-    a {{ color: var(--accent); text-decoration: none; }}
+    .btn:hover {{ background: #115e59; box-shadow: 0 4px 16px rgba(20,184,166,.3); }}
+    a {{ color: var(--accent-glow); text-decoration: none; }}
   </style>
 </head>
 <body>
@@ -161,18 +206,32 @@ async def view_blueprint(token: str, request: Request):
     <div class="card"><span>Network Isolation</span><b>{_html.escape(data['network_isolation'])}</b></div>
   </div>
 
-  <h3>Guaranteed Compliance & Security Posture</h3>
+  <h3 style="color:#fff">Guaranteed Compliance & Security Posture</h3>
   <ul>{guarantees_html}</ul>
 
-  <div style="background:linear-gradient(135deg,#eef6f3,#fffdf8);border:1px solid #99d5cf;border-radius:12px;padding:1.5rem;margin:2rem 0">
-    <h3 style="color:#0f766e">Ready-to-Deploy Package</h3>
-    <p>Deploy this exact architecture with pre-configured scripts, frozen container manifests, and air-gapped model loaders.</p>
+  <div style="background:linear-gradient(135deg,#132838,#131d33);border:1px solid #14b8a6;border-radius:12px;padding:1.75rem;margin:2rem 0">
+    <h3 style="color:var(--accent-glow)">Ready-to-Deploy Package</h3>
+    <p style="color:var(--muted);margin:.4rem 0">Deploy this exact architecture with pre-configured scripts, frozen container manifests, and air-gapped model loaders.</p>
     <p style="font-size:1.3rem;font-weight:800;color:var(--price);margin:.5rem 0">{_html.escape(data['package_price'])}</p>
     <a class="btn" href="/p/{_html.escape(data['primary_package'])}">Review & Purchase Package Deployment Bundle →</a>
   </div>
 
-  <p style="text-align:center;color:var(--muted);font-size:.85rem"><a href="/">← Return to Storefront Catalog</a> · <a href="/contact">Schedule Technical Onboarding</a></p>
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;margin-top:2rem">
+    <a href="/api/blueprint/{token}/json" style="font-weight:700">Download Blueprint Spec (.json) ↓</a>
+    <p style="color:var(--muted);font-size:.85rem"><a href="/">← Return to Storefront</a> · <a href="/contact">Schedule Technical Onboarding</a></p>
+  </div>
 </div>
 </body>
 </html>"""
     return HTMLResponse(html)
+
+
+@router.get("/api/blueprint/{token}/json")
+async def api_get_blueprint_json(token: str):
+    """Retrieve machine-readable JSON blueprint specification."""
+    with get_db(settings.db_path) as conn:
+        conn.execute(CREATE_BLUEPRINTS_DDL)
+        row = conn.execute("SELECT blueprint_json FROM blueprints WHERE token = ?", (token,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Blueprint not found")
+        return JSONResponse(json.loads(row["blueprint_json"]))

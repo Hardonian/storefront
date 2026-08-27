@@ -1,6 +1,6 @@
 # Sovereign Storefront & Platform Evidence Console
 
-[![Test Suite](https://img.shields.io/badge/pytest-105%20passed%20%7C%20100%25-success)](tests/)
+[![Test Suite](https://img.shields.io/badge/pytest-121%20passed%20%7C%20100%25-success)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](pyproject.toml)
 [![Architecture](https://img.shields.io/badge/architecture-Domain--Driven%20Modular-teal)](app/)
 [![Autonomous Learning](https://img.shields.io/badge/learning-Bayesian%20Thompson%20Bandit-orange)](app/services/bandit_service.py)
@@ -33,17 +33,20 @@ storefront/
 │   │   └── request_context.py # Session resolution, request tracking, bot classification
 │   │
 │   ├── services/              # Autonomous & business domain services
-│   │   ├── bandit_service.py  # Bayesian Beta-Bernoulli Thompson Sampling bandit
-│   │   ├── anomaly_detector.py# Real-time funnel anomaly & conversion stall detector
-│   │   ├── stack_bridge.py    # revenue-os, Hermes Ops Nerve Center, and Compute API bridge
-│   │   ├── demand_intelligence.py # Customer inquiry mining & intent gap signals
-│   │   ├── license_service.py # Air-gapped cryptographic software license engine
-│   │   ├── product_service.py # Catalog querying, sorting, enrichment
-│   │   └── analytics_service.py # SQLite events & aggregation
+│   │   ├── finetuning_service.py # LoRA/QLoRA VRAM budgeting, dataset token sizing, Unsloth recipes
+│   │   ├── benchmark_service.py  # TTFT, TPS throughput, quantization retention & KV cache scaling
+│   │   ├── bandit_service.py     # Bayesian Beta-Bernoulli Thompson Sampling bandit
+│   │   ├── anomaly_detector.py   # Real-time funnel anomaly & conversion stall detector
+│   │   ├── stack_bridge.py       # revenue-os, Hermes Ops Nerve Center, Model Zoo & Compute API bridge
+│   │   ├── demand_intelligence.py# Customer inquiry mining & intent gap signals
+│   │   ├── license_service.py    # Air-gapped cryptographic software license engine
+│   │   ├── product_service.py    # Catalog querying, sorting, enrichment
+│   │   └── analytics_service.py  # SQLite events & aggregation
 │   │
 │   ├── routers/               # Domain-driven API & web controllers
-│   │   ├── catalog.py         # Home grid, /p/{slug}, /pricing, /free-audit-guide
-│   │   ├── tools.py           # /tools/redaction-sandbox, /tools/hardware-sizer, /tools/gpu-cost-calculator
+│   │   ├── catalog.py         # Home grid, capability filtering, /p/{slug}, /pricing
+│   │   ├── finetuning.py      # /tools/finetuning-optimizer, /api/tools/finetune-estimate, recipe export
+│   │   ├── tools.py           # /tools/model-benchmarks, /tools/stack-matrix, /tools/redaction-sandbox, /tools/hardware-sizer
 │   │   ├── blueprint.py       # Tailored Sovereign Architecture Blueprint generator (/blueprint/{token})
 │   │   ├── commerce.py        # Checkout routing, /buyer locker, /order/success, /download/{slug}
 │   │   ├── api_products.py    # Public sanitized JSON product catalog
@@ -60,7 +63,10 @@ storefront/
 │   └── main.py                # Application entrypoint & middleware assembly
 │
 ├── static/                    # Fast static CSS, JS, SVGs, and landing assets
-├── tests/                     # 100% passing test suite (105 contracts)
+├── tests/                     # 100% passing test suite (121 contracts)
+│   ├── test_finetuning_service.py
+│   ├── test_benchmark_service.py
+│   ├── test_expanded_tools_routes.py
 │   ├── test_threat_model_qa.py
 │   ├── test_bandit_service.py
 │   ├── test_anomaly_detector.py

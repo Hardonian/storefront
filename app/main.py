@@ -54,6 +54,7 @@ from app.routers import (
     blueprint,
     catalog,
     commerce,
+    finetuning,
     legal,
     private_ai_ops,
     seo,
@@ -156,3 +157,4 @@ app.include_router(seo.router)
 app.include_router(private_ai_ops.router)
 app.include_router(tools.router)
 app.include_router(blueprint.router)
+app.include_router(finetuning.router)

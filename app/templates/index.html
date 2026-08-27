@@ -53,8 +53,8 @@
       font-size: .92rem;
       padding: .85rem 1.5rem;
       background: rgba(15, 23, 42, .75);
-      backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
       border: 1px solid var(--border);
       border-radius: 12px;
     }
@@ -107,6 +107,7 @@
     .hero h1 span {
       background: linear-gradient(135deg, #14b8a6, #38bdf8);
       -webkit-background-clip: text;
+      background-clip: text;
       -webkit-text-fill-color: transparent;
     }
     .hero-copy {
@@ -167,6 +168,7 @@
       border: 1px solid var(--border);
       border-radius: 999px;
       background: rgba(15, 23, 42, .8);
+      -webkit-backdrop-filter: blur(8px);
       backdrop-filter: blur(8px);
     }
     .trust-bar .pill b { color: #fff; font-weight: 600; }
@@ -273,6 +275,8 @@
       color: #fff;
       border-color: var(--accent-glow);
     }
+    .catalog-heading { margin-top: 4rem; }
+    .accent-link { color: var(--accent-glow); }
 
     /* Product Grid */
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1.5rem; }
@@ -498,7 +502,7 @@
   {% endif %}
 
   <!-- Catalog Section with Filter Pills -->
-  <section class="tools-heading" style="margin-top:4rem">
+  <section class="tools-heading catalog-heading">
     <h2 id="offers">Sovereign Software & Workflow Portfolio</h2>
     <p>Deterministic governance suites, autonomous automation toolkits, and private compute infrastructure.</p>
   </section>
@@ -535,7 +539,7 @@
     {% endfor %}
   </div>
   {% else %}
-    <div class="empty"><p>No products matching filter. <a href="/?category=all#offers" style="color:var(--accent-glow)">View all products →</a></p></div>
+    <div class="empty"><p>No products matching filter. <a href="/?category=all#offers" class="accent-link">View all products →</a></p></div>
   {% endif %}
 
   <!-- Savings ROI Calculator -->

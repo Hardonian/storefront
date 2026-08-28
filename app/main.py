@@ -2227,6 +2227,7 @@ async def api_products():
 async def api_lead(request: Request, payload: dict = Body(default={})):
     """Capture a lead and record privacy-bounded funnel evidence. Fail-soft."""
     import sqlite3 as _sql
+
     from app.funnel_truth import classify_request, record_funnel_event
 
     _check_post_rate_limit(client_ip(request))

@@ -1,5 +1,9 @@
 # Sovereign Storefront & Platform Evidence Console
 
+<!-- BEGIN: REPO HERO -->
+![storefront — hero generated locally on the GPU stack](assets/repo-hero.png)
+<!-- END: REPO HERO -->
+
 [![Test Suite](https://img.shields.io/badge/pytest-121%20passed%20%7C%20100%25-success)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](pyproject.toml)
 [![Architecture](https://img.shields.io/badge/architecture-Domain--Driven%20Modular-teal)](app/)
